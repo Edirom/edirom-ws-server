@@ -16,31 +16,45 @@ const wss = new WebSocket.Server({ noServer: true });
 const sessions = {};
 
 // Handle HTTP upgrade requests to upgrade them to WebSocket connections
-// Handle HTTP upgrade requests to upgrade them to WebSocket connections
 server.on('upgrade', (request, socket, head) => {
-    // Parse the URL to get the session ID
-    const url = new URL(request.url, `http://${request.headers.host}`);
-    const sessionId = url.pathname.split('/').pop();
-
+    let sessionId = null;
     // Handle the WebSocket connection upgrade
     wss.handleUpgrade(request, socket, head, (ws) => {
-        // If the session does not exist, create an empty array for it
-        if (!sessions[sessionId]) {
-            sessions[sessionId] = [];
-        }
-        // Add the new WebSocket connection to the session
-        sessions[sessionId].push(ws);
 
         // Set up an event listener for messages received on this WebSocket connection
+        // TODO: I gave to the parsing of data way more robust. The server must not crash even when the data sent by the client is not as expected!!
         ws.on('message', (message) => {
-            console.log(`Received message: ${message} in session: ${sessionId}`);
-            // Broadcast the message to all other clients in the same session
-            sessions[sessionId].forEach(client => {
-                if (client !== ws && client.readyState === WebSocket.OPEN) {
-                    console.log(typeof message);
-                    client.send(message.toString());
+            console.log(`Received message: ${message}`);
+            const messageJson = JSON.parse(message);
+            if (messageJson.request) {
+                if (messageJson.request === "giveSessionId") {
+                    giveSessionId(ws);
                 }
-            });
+                else if (messageJson.request === "mergeSessions") {
+                    mergeSessions(ws, messageJson);
+                }
+            }
+            else {
+                if (messageJson.message) {
+                    // Broadcast the message to all other clients in the same session
+                    sessions[sessionId].forEach(client => {
+                        if (client !== ws && client.readyState === WebSocket.OPEN) {
+                            client.send(JSON.stringify(messageJson));
+                        }
+                    });
+                }
+            }
+
+
+
+
+            // Broadcast the message to all other clients in the same session
+            // sessions[sessionId].forEach(client => {
+            //     if (client !== ws && client.readyState === WebSocket.OPEN) {
+            //         console.log(typeof message);
+            //         client.send(message.toString());
+            //     }
+            // });
         });
 
         // Set up an event listener for when the WebSocket connection is closed
@@ -53,8 +67,26 @@ server.on('upgrade', (request, socket, head) => {
             }
         });
 
-        // Send a welcome message to the new connection
-        ws.send(`Connected to session ${sessionId}`);
+        function giveSessionId(ws) {
+            sessionId = Math.floor(Math.random() * (999 - 100 + 1) + 100); // random 3 digit number
+            // TODO: here I have to check if the Id is already in use and generate a new one if it is 
+            console.log(`Gave connection session ID ${sessionId}.`);
+            if (!sessions[sessionId]) {
+                sessions[sessionId] = [];
+            }
+            sessions[sessionId].push(ws);
+            sessionIdString = JSON.stringify({ sessionId: sessionId });
+            ws.send(sessionIdString);
+
+        }
+
+        function mergeSessions(ws, messageJson) {
+            if (sessions[messageJson.sessionId]) {
+                console.log("Here!");
+                sessionId = messageJson.sessionId;
+                sessions[sessionId].push(ws);
+            }
+        }
     });
 });
 
@@ -70,25 +102,3 @@ server.listen(port, () => {
     console.log(`Server is listening on http://localhost:${port}`);
 });
 
-// // Create a new WebSocket server listening on port 8080
-// const wss = new WebSocket.Server({ port: 8080 });
-
-// // When a new client connects
-// wss.on('connection', (ws) => {
-//     console.log('New client connected');
-
-//     // When the server receives a message from a client
-//     ws.on('message', (message) => {
-//         console.log(`Received: ${message}`);
-//         // Echo the message back to the client
-//         ws.send(`You said: ${message}`);
-//     });
-
-//     // When the client disconnects
-//     ws.on('close', () => {
-//         console.log('Client disconnected');
-//     });
-
-//     // Send a welcome message to the client when they connect
-//     ws.send('Welcome to the WebSocket server!');
-// });
