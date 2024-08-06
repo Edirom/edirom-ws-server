@@ -60,7 +60,7 @@ server.on('upgrade', (request, socket, head) => {
         // Set up an event listener for when the WebSocket connection is closed
         ws.on('close', () => {
             // Remove the closed connection from the session
-            sessions[sessionId] = sessions[sessionId].filter(client => client !== ws);
+            sessions[sessionId] = sessions[sessionId].filter(client => client !== ws); //this "filter" sometimes causes an error
             // If the session is empty, delete it
             if (sessions[sessionId].length === 0) {
                 delete sessions[sessionId];
@@ -85,6 +85,12 @@ server.on('upgrade', (request, socket, head) => {
                 console.log("Here!");
                 sessionId = messageJson.sessionId;
                 sessions[sessionId].push(ws);
+                const responseJson = { response: "sessionConnected" };
+                sessions[sessionId].forEach(client => {
+                    if (client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify(responseJson));
+                    }
+                });
             }
         }
     });
