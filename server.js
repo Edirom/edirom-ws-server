@@ -82,11 +82,10 @@ server.on('upgrade', (request, socket, head) => {
 
         function mergeSessions(ws, messageJson) {
             if (sessions[messageJson.sessionId]) {
-                console.log("Here!");
                 sessionId = messageJson.sessionId;
                 sessions[sessionId].push(ws);
                 const numberOfSessionMembers = sessions[sessionId].length;
-                const responseJson = { response: "sessionConnected", numberOfSessionMembers: numberOfSessionMembers };
+                const responseJson = { response: "sessionConnected", numberOfSessionMembers: numberOfSessionMembers, deviceInfo: messageJson.deviceInfo };
                 sessions[sessionId].forEach(client => {
                     if (client.readyState === WebSocket.OPEN) {
                         client.send(JSON.stringify(responseJson));
