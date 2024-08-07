@@ -85,7 +85,8 @@ server.on('upgrade', (request, socket, head) => {
                 console.log("Here!");
                 sessionId = messageJson.sessionId;
                 sessions[sessionId].push(ws);
-                const responseJson = { response: "sessionConnected" };
+                const numberOfSessionMembers = sessions[sessionId].length;
+                const responseJson = { response: "sessionConnected", numberOfSessionMembers: numberOfSessionMembers };
                 sessions[sessionId].forEach(client => {
                     if (client.readyState === WebSocket.OPEN) {
                         client.send(JSON.stringify(responseJson));
