@@ -1,6 +1,7 @@
 // Import the WebSocket library
 const express = require('express');
 const WebSocket = require('ws');
+const { v4: uuidv4 } = require("uuid");
 
 // Create an Express application
 const app = express();
@@ -68,8 +69,7 @@ server.on('upgrade', (request, socket, head) => {
         });
 
         function giveSessionId(ws) {
-            sessionId = Math.floor(Math.random() * (999 - 100 + 1) + 100); // random 3 digit number
-            // TODO: here I have to check if the Id is already in use and generate a new one if it is 
+            const sessionId = uuidv4();
             console.log(`Gave connection session ID ${sessionId}.`);
             if (!sessions[sessionId]) {
                 sessions[sessionId] = [];
@@ -77,7 +77,6 @@ server.on('upgrade', (request, socket, head) => {
             sessions[sessionId].push(ws);
             sessionIdString = JSON.stringify({ sessionId: sessionId });
             ws.send(sessionIdString);
-
         }
 
         function mergeSessions(ws, messageJson) {
