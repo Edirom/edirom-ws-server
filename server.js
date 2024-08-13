@@ -21,6 +21,7 @@ const sessions = {};
 // Handle HTTP upgrade requests to upgrade them to WebSocket connections
 server.on('upgrade', (request, socket, head) => {
     console.log("New connection!");
+    let clientId = null;
     let sessionId = null;
     // Handle the WebSocket connection upgrade
     wss.handleUpgrade(request, socket, head, (ws) => {
@@ -34,7 +35,7 @@ server.on('upgrade', (request, socket, head) => {
             const messageJson = JSON.parse(message);
             if (messageJson.request) {
                 if (messageJson.request === "giveSessionId") {
-                    giveSessionId(ws);
+                    sendSessionId(ws);
                 }
                 else if (messageJson.request === "mergeSessions") {
                     mergeSessions(ws, messageJson);
@@ -60,14 +61,15 @@ server.on('upgrade', (request, socket, head) => {
 
         // TODO: Do I have to definde this functions inside the upgrade handler or outside of it?
         function handleNewSession(ws) {
+            clientId = uuidv4();
             sessionId = uuidv4();
-            console.log(`Gave connection session ID ${sessionId}.`);
-            sessions[sessionId] = { clients: [ws] };
+            console.log(`Gave connection client ID ${clientId} and session ID ${sessionId}.`);
+            sessions[sessionId] = { clients: [{ clientId: clientId, ws: ws }] };
             console.log("Number of sessions: ", Object.keys(sessions).length);
             console.log("Clients in this session: ", sessions[sessionId].clients.length);
         }
 
-        function giveSessionId(ws) {
+        function sendSessionId(ws) {
             sessionIdString = JSON.stringify({ sessionId: sessionId });
             console.log(`Sending session ID ${sessionIdString}.`);
             ws.send(sessionIdString);
@@ -83,7 +85,7 @@ server.on('upgrade', (request, socket, head) => {
                 console.log("Number of sessions: ", Object.keys(sessions).length);
                 console.log("Clients in this session: ", sessions[sessionId].clients.length);
                 const numberOfSessionMembers = sessions[sessionId].clients.length;
-                const responseJson = { response: "sessionConnected", numberOfSessionMembers: numberOfSessionMembers, deviceInfo: messageJson.deviceInfo };
+                const responseJson = { response: "clientConnected", numberOfSessionMembers: numberOfSessionMembers, deviceInfo: messageJson.deviceInfo };
                 sessions[sessionId].clients.forEach(client => {
                     if (client.readyState === WebSocket.OPEN) { //TODO: Should I use this WebSocket.OPEN check every time I send something?
                         client.send(JSON.stringify(responseJson));
@@ -93,8 +95,15 @@ server.on('upgrade', (request, socket, head) => {
         }
 
         function handleClientDisconnect(ws) {
+            // TO DO: Notify the remaining clients that a client has left. How does the Edirom know which client disconnected? I should programm a more detailed client object in the sessions array with unique ID and metadata like the OS, browser etc. The edirom can then get this information and can be sure that the data is up to date and has the metadata.
+            const responseJson = { response: "clientDisconnected", numberOfSessionMembers: sessions[sessionId].clients.length };
+            sessions[sessionId].clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify(responseJson));
+                }
+            });
+
             removeClient(ws);
-            // TO DO: Notify the remaining clients that a client has left
 
         }
 
