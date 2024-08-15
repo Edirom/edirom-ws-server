@@ -45,12 +45,19 @@ server.on('upgrade', (request, socket, head) => {
             }
             else {
                 if (messageJson.message) {
-                    // Broadcast the message to all other clients in the same session
-                    sessions[sessionId].clients.forEach(client => {
-                        if (client !== ws && client.readyState === WebSocket.OPEN) {
-                            client.send(JSON.stringify(messageJson));
-                        }
-                    });
+                    if (messageJson.message === "scanned-qr-code") {
+                        const resolved_qr_code_data = qr_codes[messageJson.qrCode];
+                        console.log("Resolved QR code data:");
+                        console.log(resolved_qr_code_data);
+                    }
+                    else {
+                        // Broadcast the message to all other clients in the same session
+                        sessions[sessionId].clients.forEach(client => {
+                            if (client !== ws && client.readyState === WebSocket.OPEN) {
+                                client.send(JSON.stringify(messageJson));
+                            }
+                        });
+                    }
                 }
             }
         });
