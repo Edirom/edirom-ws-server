@@ -47,15 +47,14 @@ server.on('upgrade', (request, socket, head) => {
             else {
                 if (messageJson.message) {
                     if (messageJson.message === "scanned-qr-code") {
-                        const resolved_qr_code_data = qr_codes[messageJson.qrCode];
+                        const resolved_qr_code_data = qr_codes[messageJson.code];
                         console.log("Resolved QR code data:");
                         console.log(resolved_qr_code_data);
-                    }
-                    else {
-                        // Broadcast the message to all other clients in the same session
+
+                        const responseJson = { message: "open-links", links: resolved_qr_code_data };
                         sessions[sessionId].clients.forEach(client => {
                             if (client.ws !== ws && client.ws.readyState === WebSocket.OPEN) {
-                                client.ws.send(JSON.stringify(messageJson));
+                                client.ws.send(JSON.stringify(responseJson));
                             }
                         });
                     }
