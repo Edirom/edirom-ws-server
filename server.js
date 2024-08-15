@@ -2,6 +2,9 @@
 const express = require('express');
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require("uuid");
+const fs = require('fs');
+
+const qr_codes = JSON.parse(fs.readFileSync('data/qr_codes.json', 'utf8'));
 
 // Create an Express application
 const app = express();
