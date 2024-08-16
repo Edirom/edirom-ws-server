@@ -139,17 +139,18 @@ server.on('upgrade', (request, socket, head) => {
             return { sessionId: sessionId, sessionMembers: filteredSessionMembers };
         }
 
-        function handleClientDisconnect(ws) {
-            // TO DO: Notify the remaining clients that a client has left. How does the Edirom know which client disconnected? I should programm a more detailed client object in the sessions array with unique ID and metadata like the OS, browser etc. The edirom can then get this information and can be sure that the data is up to date and has the metadata.
-            const responseJson = { response: "clientDisconnected", numberOfSessionMembers: sessions[sessionId].clients.length };
+        function handleClientDisconnect(ws) { //TODO: I could probaly merge this with the mergeSessions function and just make it a handleClientConnectionUpdate or something. The same thing in the edirom.
+            removeClient(ws, sessionId);
+            // Notify the other clients in the session that a client has disconnected
+            const filteredClientData = { id: client.id, metadata: client.metadata };
+            const filteredSessionMembers = sessions[sessionId].clients.map(client => { return { id: client.id, metadata: client.metadata } });
+            const sessionData = getSessionDataForClients();
+            responseJson = { response: "clientDisconnected", clientData: filteredClientData, sessionData: sessionData };
             sessions[sessionId].clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify(responseJson));
+                if (client.ws !== ws && client.ws.readyState === WebSocket.OPEN) { //TODO: Should I use this WebSocket.OPEN check every time I send something?
+                    client.ws.send(JSON.stringify(responseJson));
                 }
             });
-
-            removeClient(ws, sessionId);
-
         }
 
         function removeClient(client, sessionId) {
