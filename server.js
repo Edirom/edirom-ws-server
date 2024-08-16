@@ -24,7 +24,11 @@ const sessions = {};
 // Handle HTTP upgrade requests to upgrade them to WebSocket connections
 server.on('upgrade', (request, socket, head) => {
     console.log("New connection!");
-    let client = {};
+    let client = {
+        id: null,
+        ws: null,
+        metadata: { deviceType: "unknown", os: "unknown", browser: "unknown" }
+    };
     let sessionId = null;
     // Handle the WebSocket connection upgrade
     wss.handleUpgrade(request, socket, head, (ws) => {
@@ -52,8 +56,8 @@ server.on('upgrade', (request, socket, head) => {
             }
             else {
                 if (messageJson.message) {
-                    if (messageJson.message === "clientMetadata") {
-                        client["metadata"] = messageJson.clientmetadata;
+                    if (messageJson.message === "userAgent") {
+                        client["metadata"] = parseUserAgent(messageJson.userAgent);
                     }
                     if (messageJson.message === "scanned-qr-code") {
                         const resolved_qr_code_data = qr_codes[messageJson.code];
@@ -143,14 +147,16 @@ server.on('upgrade', (request, socket, head) => {
             removeClient(ws, sessionId);
             // Notify the other clients in the session that a client has disconnected
             const filteredClientData = { id: client.id, metadata: client.metadata };
-            const filteredSessionMembers = sessions[sessionId].clients.map(client => { return { id: client.id, metadata: client.metadata } });
-            const sessionData = getSessionDataForClients();
-            responseJson = { response: "clientDisconnected", clientData: filteredClientData, sessionData: sessionData };
-            sessions[sessionId].clients.forEach(client => {
-                if (client.ws !== ws && client.ws.readyState === WebSocket.OPEN) { //TODO: Should I use this WebSocket.OPEN check every time I send something?
-                    client.ws.send(JSON.stringify(responseJson));
-                }
-            });
+            if (sessions[sessionId]) {
+                const filteredSessionMembers = sessions[sessionId].clients.map(client => { return { id: client.id, metadata: client.metadata } });
+                const sessionData = getSessionDataForClients();
+                responseJson = { response: "clientDisconnected", clientData: filteredClientData, sessionData: sessionData };
+                sessions[sessionId].clients.forEach(client => {
+                    if (client.ws !== ws && client.ws.readyState === WebSocket.OPEN) { //TODO: Should I use this WebSocket.OPEN check every time I send something?
+                        client.ws.send(JSON.stringify(responseJson));
+                    }
+                });
+            }
         }
 
         function removeClient(client, sessionId) {
@@ -161,6 +167,53 @@ server.on('upgrade', (request, socket, head) => {
                 delete sessions[sessionId];
             }
             console.log("Number of sessions: ", Object.keys(sessions).length);
+        }
+
+        function parseUserAgent(userAgentString) {
+            let os = "unknown";
+            let deviceType = "unknown";
+            let browser = "unknown";
+
+            // OS
+            if (userAgentString.includes("Windows")) {
+                os = "Windows";
+            }
+            else if (userAgentString.includes("Android")) {
+                os = "Android";
+            }
+            else if (userAgentString.includes("Linux")) {
+                os = "Linux";
+            }
+            else if (userAgentString.includes("iPhone") || userAgentString.includes("iPad")) {
+                os = "iOS";
+            }
+            else if (userAgentString.includes("Mac")) {
+                os = "MacOS";
+            }
+
+            // Device type
+            if (os === "Windows" || os === "Linux" || os === "MacOS") {
+                deviceType = "Desktop";
+            }
+            else if (os === "Android" || os === "iOS") {
+                deviceType = "Mobilgerät";
+            }
+
+            // Browser
+            if (userAgentString.includes("Firefox")) {
+                browser = "Firefox";
+            }
+            else if (userAgentString.includes("Chrome")) {
+                browser = "Chrome";
+            }
+            else if (userAgentString.includes("Safari")) {
+                browser = "Safari";
+            }
+            else if (userAgentString.includes("Edge")) {
+                browser = "Edge";
+            }
+
+            return { deviceType: deviceType, os: os, browser: browser };
         }
     });
 });
