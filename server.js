@@ -36,7 +36,7 @@ server.on('upgrade', (request, socket, head) => {
         handleNewSession(ws);
 
         // Set up an event listener for messages received on this WebSocket connection
-        // TODO: I gave to the parsing of data way more robust. The server must not crash even when the data sent by the client is not as expected!!
+        // TODO: I have to do the parsing of data way more robust. The server must not crash even when the data sent by the client is not as expected!!
         ws.on('message', (message) => {
             console.log(`Received message: ${message}`);
             const messageJson = JSON.parse(message);
@@ -113,7 +113,6 @@ server.on('upgrade', (request, socket, head) => {
 
         function mergeSessions(ws, messageJson) {
             // TODO: Respond to client if the session ID is not valid
-            // TODO: Delete old entry of session
             // TODO: Clean this up by splitting in functions
             if (sessions[messageJson.sessionId]) {
                 const oldSessionId = sessionId;
