@@ -21,146 +21,124 @@ console.log("I run!");
 // Object to store WebSocket connections by session ID
 const sessions = {};
 
+// Generates a unique 6-character alphanumeric session ID (uppercase, unambiguous charset)
+function generateSessionId() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let id;
+    do {
+        id = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    } while (sessions[id]);
+    return id;
+}
+
 // Handle HTTP upgrade requests to upgrade them to WebSocket connections
 server.on('upgrade', (request, socket, head) => {
     console.log("New connection!");
+    const url = new URL(request.url, 'http://localhost');
+    const requestedSessionId = url.searchParams.get('sessionId')?.toUpperCase() ?? null;
+    const clientName = (url.searchParams.get('clientName') ?? 'unknown').slice(0, 64);
+    const deviceType = (url.searchParams.get('deviceType') ?? 'unknown').slice(0, 32);
+
     let client = {
-        id: null,
+        id: uuidv4(),
         ws: null,
-        metadata: { deviceType: "unknown", os: "unknown", browser: "unknown" }
+        metadata: { name: clientName, deviceType }
     };
     let sessionId = null;
-    // Handle the WebSocket connection upgrade
+
     wss.handleUpgrade(request, socket, head, (ws) => {
+        client.ws = ws;
 
-        handleNewSession(ws);
+        if (requestedSessionId === null) {
+            // No session ID provided → create a new session
+            sessionId = generateSessionId();
+            sessions[sessionId] = { clients: [client] };
+            console.log(`Created new session ${sessionId} for client ${client.id}.`);
+            console.log("Number of sessions: ", Object.keys(sessions).length);
+            const sessionData = getSessionDataForClients();
+            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData }));
 
-        // Set up an event listener for messages received on this WebSocket connection
-        // TODO: I have to do the parsing of data way more robust. The server must not crash even when the data sent by the client is not as expected!!
+        } else if (sessions[requestedSessionId]) {
+            // Session ID found → join the existing session
+            sessionId = requestedSessionId;
+            sessions[sessionId].clients.push(client);
+            console.log(`Client ${client.id} joined session ${sessionId}.`);
+            console.log("Clients in this session: ", sessions[sessionId].clients.length);
+            const sessionData = getSessionDataForClients();
+            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData }));
+            // Notify the other clients in the session
+            const clientData = { id: client.id, metadata: client.metadata };
+            sessions[sessionId].clients.forEach(c => {
+                if (c.ws !== ws && c.ws.readyState === WebSocket.OPEN) {
+                    c.ws.send(JSON.stringify({ response: 'clientConnected', clientData, sessionData }));
+                }
+            });
+
+        } else {
+            // Session ID not found → send error and close
+            console.log(`Session ${requestedSessionId} not found. Closing connection.`);
+            ws.send(JSON.stringify({ response: 'error', reason: 'sessionNotFound' }));
+            ws.close();
+            return;
+        }
+
         ws.on('message', (message) => {
             console.log(`Received message: ${message}`);
-            const messageJson = JSON.parse(message);
-            if (messageJson.request) {
-                if (messageJson.request === "giveSessionId") {
-                    sendSessionId(ws);
-                }
-                else if (messageJson.request === "giveClientId") {
-                    sendClientId(ws);
-                }
-                else if (messageJson.request === "giveSessionData") {
-                    sendSessionData(ws);
-                }
-                else if (messageJson.request === "mergeSessions") {
-                    mergeSessions(ws, messageJson);
-                }
+            let messageJson;
+            try {
+                messageJson = JSON.parse(message);
+            } catch (e) {
+                console.error('Could not parse message:', e);
+                return;
             }
-            else {
-                if (messageJson.message) {
-                    if (messageJson.message === "userAgent") {
-                        client["metadata"] = parseUserAgent(messageJson.userAgent);
+            if (messageJson.message === "updateClientName") {
+                client.metadata.name = messageJson.clientName ?? 'unknown';
+                const sessionData = getSessionDataForClients();
+                sessions[sessionId].clients.forEach(c => {
+                    if (c.ws !== ws && c.ws.readyState === WebSocket.OPEN) {
+                        c.ws.send(JSON.stringify({ response: 'sessionDataUpdated', sessionData }));
                     }
-                    if (messageJson.message === "scanned-qr-code") {
-                        const resolved_qr_code_data = qr_codes[messageJson.code];
-                        console.log("Resolved QR code data:");
-                        console.log(resolved_qr_code_data);
-
-                        const responseJson = { message: "open-links", links: resolved_qr_code_data };
-                        sessions[sessionId].clients.forEach(client => {
-                            if (client.ws !== ws && client.ws.readyState === WebSocket.OPEN) {
-                                client.ws.send(JSON.stringify(responseJson));
-                            }
-                        });
-                    }
+                });
+            } else if (messageJson.message === "removeClient") {
+                const target = sessions[sessionId]?.clients.find(c => c.id === messageJson.clientId);
+                if (target && target.ws.readyState === WebSocket.OPEN) {
+                    target.ws.close();
                 }
+            } else if (messageJson.message === "scanned-qr-code") {
+                const resolved_qr_code_data = qr_codes[messageJson.code];
+                console.log("Resolved QR code data:", resolved_qr_code_data);
+                const responseJson = { message: "open-links", links: resolved_qr_code_data };
+                sessions[sessionId].clients.forEach(c => {
+                    if (c.ws !== ws && c.ws.readyState === WebSocket.OPEN) {
+                        c.ws.send(JSON.stringify(responseJson));
+                    }
+                });
             }
         });
 
-        // Set up an event listener for when the WebSocket connection is closed
         ws.on('close', () => {
             console.log("Connection closed!");
-            handleClientDisconnect(ws);
+            if (!sessionId || !sessions[sessionId]) return;
+            removeClient(ws, sessionId);
+            const clientData = { id: client.id, metadata: client.metadata };
+            if (sessions[sessionId]) {
+                const sessionData = getSessionDataForClients();
+                const responseJson = { response: "clientDisconnected", clientData, sessionData };
+                sessions[sessionId].clients.forEach(c => {
+                    if (c.ws !== ws && c.ws.readyState === WebSocket.OPEN) {
+                        c.ws.send(JSON.stringify(responseJson));
+                    }
+                });
+            }
         });
 
-        // TODO: Do I have to definde this functions inside the upgrade handler or outside of it?
-        function handleNewSession(ws) {
-            client["id"] = uuidv4();
-            client["ws"] = ws;
-            sessionId = uuidv4();
-            console.log(`Gave connection client ID ${client["id"]} and session ID ${sessionId}.`);
-            sessions[sessionId] = { clients: [client] };
-            console.log("Number of sessions: ", Object.keys(sessions).length);
-            console.log("Clients in this session: ", sessions[sessionId].clients.length);
-        }
-
-        function sendSessionId(ws) {
-            sessionIdString = JSON.stringify({ sessionId: sessionId });
-            console.log(`Sending session ID ${sessionIdString}.`);
-            ws.send(sessionIdString);
-        }
-
-        function sendClientId(ws) {
-            clientIdString = JSON.stringify({ clientId: client.id });
-            console.log(`Sending client ID ${clientIdString}.`);
-            ws.send(clientIdString);
-        }
-
-        function sendSessionData(ws) {
-            const sessionData = getSessionDataForClients();
-            const sessionDataString = JSON.stringify({ sessionData: sessionData });
-            console.log(`Sending session data ${sessionDataString}.`);
-            ws.send(sessionDataString);
-        }
-
-        function mergeSessions(ws, messageJson) {
-            // TODO: Respond to client if the session ID is not valid
-            // TODO: Clean this up by splitting in functions
-            if (sessions[messageJson.sessionId]) {
-                const oldSessionId = sessionId;
-                sessionId = messageJson.sessionId;
-                sessions[sessionId].clients.push(client);
-                removeClient(ws, oldSessionId);
-                console.log("Number of sessions: ", Object.keys(sessions).length);
-                console.log("Clients in this session: ", sessions[sessionId].clients.length);
-                // Answer the client that the session was successfully merged
-                let responseJson = { response: "sessionMerged", sessionId: sessionId };
-                ws.send(JSON.stringify(responseJson));
-                // Notify the other clients in the session that a new client has connected
-                const filteredClientData = { id: client.id, metadata: client.metadata };
-                const filteredSessionMembers = sessions[sessionId].clients.map(client => { return { id: client.id, metadata: client.metadata } });
-                const sessionData = getSessionDataForClients();
-                responseJson = { response: "clientConnected", clientData: filteredClientData, sessionData: sessionData };
-                sessions[sessionId].clients.forEach(client => {
-                    if (client.ws !== ws && client.ws.readyState === WebSocket.OPEN) { //TODO: Should I use this WebSocket.OPEN check every time I send something?
-                        client.ws.send(JSON.stringify(responseJson));
-                    }
-                });
-            }
-        }
-
         function getSessionDataForClients() {
-            const filteredSessionMembers = sessions[sessionId].clients.map(client => { return { id: client.id, metadata: client.metadata } });
-            return { sessionId: sessionId, sessionMembers: filteredSessionMembers };
+            const sessionMembers = sessions[sessionId].clients.map(c => ({ id: c.id, metadata: c.metadata }));
+            return { sessionMembers };
         }
 
-        function handleClientDisconnect(ws) { //TODO: I could probaly merge this with the mergeSessions function and just make it a handleClientConnectionUpdate or something. The same thing in the edirom.
-            removeClient(ws, sessionId);
-            // Notify the other clients in the session that a client has disconnected
-            const filteredClientData = { id: client.id, metadata: client.metadata };
-            if (sessions[sessionId]) {
-                const filteredSessionMembers = sessions[sessionId].clients.map(client => { return { id: client.id, metadata: client.metadata } });
-                const sessionData = getSessionDataForClients();
-                responseJson = { response: "clientDisconnected", clientData: filteredClientData, sessionData: sessionData };
-                sessions[sessionId].clients.forEach(client => {
-                    if (client.ws !== ws && client.ws.readyState === WebSocket.OPEN) { //TODO: Should I use this WebSocket.OPEN check every time I send something?
-                        client.ws.send(JSON.stringify(responseJson));
-                    }
-                });
-            }
-        }
-
-        function removeClient(client, sessionId) {
-            // Remove the closed client from the session
-            sessions[sessionId].clients = sessions[sessionId].clients.filter(client => client.ws !== ws);
+        function removeClient(ws, sessionId) {
+            sessions[sessionId].clients = sessions[sessionId].clients.filter(c => c.ws !== ws);
             console.log("Clients in this session: ", sessions[sessionId].clients.length);
             if (sessions[sessionId].clients.length === 0) {
                 delete sessions[sessionId];
@@ -168,52 +146,6 @@ server.on('upgrade', (request, socket, head) => {
             console.log("Number of sessions: ", Object.keys(sessions).length);
         }
 
-        function parseUserAgent(userAgentString) {
-            let os = "unknown";
-            let deviceType = "unknown";
-            let browser = "unknown";
-
-            // OS
-            if (userAgentString.includes("Windows")) {
-                os = "Windows";
-            }
-            else if (userAgentString.includes("Android")) {
-                os = "Android";
-            }
-            else if (userAgentString.includes("Linux")) {
-                os = "Linux";
-            }
-            else if (userAgentString.includes("iPhone") || userAgentString.includes("iPad")) {
-                os = "iOS";
-            }
-            else if (userAgentString.includes("Mac")) {
-                os = "MacOS";
-            }
-
-            // Device type
-            if (os === "Windows" || os === "Linux" || os === "MacOS") {
-                deviceType = "Desktop";
-            }
-            else if (os === "Android" || os === "iOS") {
-                deviceType = "Mobilgerät";
-            }
-
-            // Browser
-            if (userAgentString.includes("Firefox")) {
-                browser = "Firefox";
-            }
-            else if (userAgentString.includes("Chrome")) {
-                browser = "Chrome";
-            }
-            else if (userAgentString.includes("Safari")) {
-                browser = "Safari";
-            }
-            else if (userAgentString.includes("Edge")) {
-                browser = "Edge";
-            }
-
-            return { deviceType: deviceType, os: os, browser: browser };
-        }
     });
 });
 
