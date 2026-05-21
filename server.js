@@ -91,6 +91,13 @@ server.on('upgrade', (request, socket, head) => {
                 console.error('Could not parse message:', e);
                 return;
             }
+            if (!sessionId || !sessions[sessionId]) {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+                return;
+            }
+
             if (messageJson.message === "updateClientName") {
                 client.metadata.name = messageJson.clientName ?? 'unknown';
                 const sessionData = getSessionDataForClients();
@@ -104,6 +111,8 @@ server.on('upgrade', (request, socket, head) => {
                 if (target && target.ws.readyState === WebSocket.OPEN) {
                     target.ws.close();
                 }
+            } else if (messageJson.message === "dissolveSession") {
+                dissolveSession(sessionId);
             } else if (messageJson.message === "scanned-qr-code") {
                 const resolved_qr_code_data = qr_codes[messageJson.code];
                 console.log("Resolved QR code data:", resolved_qr_code_data);
@@ -133,11 +142,33 @@ server.on('upgrade', (request, socket, head) => {
         });
 
         function getSessionDataForClients() {
+            if (!sessionId || !sessions[sessionId]) return { sessionMembers: [] };
             const sessionMembers = sessions[sessionId].clients.map(c => ({ id: c.id, metadata: c.metadata }));
             return { sessionMembers };
         }
 
+        function dissolveSession(sessionId) {
+            const session = sessions[sessionId];
+            if (!session) {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+                return;
+            }
+
+            const socketsToClose = session.clients
+                .map(c => c.ws)
+                .filter(socket => socket && socket.readyState === WebSocket.OPEN);
+
+            delete sessions[sessionId];
+            console.log(`Session ${sessionId} dissolved.`);
+            console.log("Number of sessions: ", Object.keys(sessions).length);
+
+            socketsToClose.forEach(socket => socket.close());
+        }
+
         function removeClient(ws, sessionId) {
+            if (!sessions[sessionId]) return;
             sessions[sessionId].clients = sessions[sessionId].clients.filter(c => c.ws !== ws);
             console.log("Clients in this session: ", sessions[sessionId].clients.length);
             if (sessions[sessionId].clients.length === 0) {
