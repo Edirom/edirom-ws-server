@@ -109,6 +109,7 @@ server.on('upgrade', (request, socket, head) => {
             } else if (messageJson.message === "removeClient") {
                 const target = sessions[sessionId]?.clients.find(c => c.id === messageJson.clientId);
                 if (target && target.ws.readyState === WebSocket.OPEN) {
+                    target.ws.send(JSON.stringify({ response: 'clientRemoved' }));
                     target.ws.close();
                 }
             } else if (messageJson.message === "dissolveSession") {
@@ -164,7 +165,10 @@ server.on('upgrade', (request, socket, head) => {
             console.log(`Session ${sessionId} dissolved.`);
             console.log("Number of sessions: ", Object.keys(sessions).length);
 
-            socketsToClose.forEach(socket => socket.close());
+            socketsToClose.forEach(socket => {
+                socket.send(JSON.stringify({ response: 'sessionDissolved' }));
+                socket.close();
+            });
         }
 
         function removeClient(ws, sessionId) {
