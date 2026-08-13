@@ -2,9 +2,6 @@
 const express = require('express');
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require("uuid");
-const fs = require('fs');
-
-const qr_codes = JSON.parse(fs.readFileSync('data/qr_codes.json', 'utf8'));
 
 // Create an Express application
 const app = express();
@@ -56,7 +53,7 @@ server.on('upgrade', (request, socket, head) => {
             console.log(`Created new session ${sessionId} for client ${client.id}.`);
             console.log("Number of sessions: ", Object.keys(sessions).length);
             const sessionData = getSessionDataForClients();
-            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData }));
+            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData, lastRelayed: sessions[sessionId].lastRelayed ?? null }));
 
         } else if (sessions[requestedSessionId]) {
             // Session ID found → join the existing session
@@ -65,7 +62,7 @@ server.on('upgrade', (request, socket, head) => {
             console.log(`Client ${client.id} joined session ${sessionId}.`);
             console.log("Clients in this session: ", sessions[sessionId].clients.length);
             const sessionData = getSessionDataForClients();
-            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData }));
+            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData, lastRelayed: sessions[sessionId].lastRelayed ?? null }));
             // Notify the other clients in the session
             const clientData = { id: client.id, metadata: client.metadata };
             sessions[sessionId].clients.forEach(c => {
@@ -114,14 +111,17 @@ server.on('upgrade', (request, socket, head) => {
                 }
             } else if (messageJson.message === "dissolveSession") {
                 dissolveSession(sessionId);
-            } else if (messageJson.message === "scanned-qr-code") {
-                const resolved_qr_code_data = qr_codes[messageJson.code];
-                console.log("Resolved QR code data:", resolved_qr_code_data);
-                const responseJson = { message: "open-links", links: resolved_qr_code_data };
+            } else if (messageJson.type) {
+                const targetedClientIds = Array.isArray(messageJson.client_targets) && messageJson.client_targets.length > 0
+                    ? messageJson.client_targets
+                    : null;
+                if (targetedClientIds === null) {
+                    sessions[sessionId].lastRelayed = { type: messageJson.type, payload: messageJson.payload };
+                }
                 sessions[sessionId].clients.forEach(c => {
-                    if (c.ws !== ws && c.ws.readyState === WebSocket.OPEN) {
-                        c.ws.send(JSON.stringify(responseJson));
-                    }
+                    if (c.ws === ws || c.ws.readyState !== WebSocket.OPEN) return;
+                    if (targetedClientIds !== null && !targetedClientIds.includes(c.id)) return;
+                    c.ws.send(JSON.stringify({ type: messageJson.type, payload: messageJson.payload }));
                 });
             }
         });
