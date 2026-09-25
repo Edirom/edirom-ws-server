@@ -32,6 +32,17 @@ function generateSessionId() {
 server.on('upgrade', (request, socket, head) => {
     console.log("New connection!");
     const url = new URL(request.url, 'http://localhost');
+
+    if (url.searchParams.get('ping') === 'true') {
+        // Lightweight availability check: confirms the WebSocket upgrade path
+        // works without creating or touching any session.
+        wss.handleUpgrade(request, socket, head, (ws) => {
+            ws.send(JSON.stringify({ response: 'pong' }));
+            ws.close();
+        });
+        return;
+    }
+
     const requestedSessionId = url.searchParams.get('sessionId')?.toUpperCase() ?? null;
     const clientName = (url.searchParams.get('clientName') ?? 'unknown').slice(0, 64);
     const deviceType = (url.searchParams.get('deviceType') ?? 'unknown').slice(0, 32);
