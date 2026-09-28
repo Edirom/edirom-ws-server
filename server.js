@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require("uuid");
 
 // Create an Express application
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Create an HTTP server using the Express app
 const server = require('http').createServer(app);
@@ -26,6 +26,116 @@ function generateSessionId() {
         id = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     } while (sessions[id]);
     return id;
+}
+
+// ---------------------------------------------------------------------------
+// Client state
+//
+// Every client entry carries a `state` object describing what that client is
+// currently showing. Clients report changes with `updateState`; the server
+// orchestrates other clients with `syncState`.
+//
+// STATE_SCHEMA is the single place that defines which keys exist:
+//   default   value a fresh client starts with
+//   shared    true  → a change is propagated to the other clients in the session
+//             false → only stored (e.g. a future per-client "openWindows")
+//   validate  returns true for acceptable values; anything else is dropped
+//
+// Adding a new state key means adding one entry here.
+// ---------------------------------------------------------------------------
+const isNullableId = (value) => value === null || (typeof value === 'string' && value.length <= 256);
+
+const STATE_SCHEMA = {
+    edition: { default: null, shared: true, validate: isNullableId },
+    work: { default: null, shared: true, validate: isNullableId },
+    // ID of the selected concordance connection; null = none selected / free exploration
+    connection: { default: null, shared: true, validate: isNullableId }
+};
+
+function createDefaultState() {
+    return Object.fromEntries(Object.entries(STATE_SCHEMA).map(([key, def]) => [key, def.default]));
+}
+
+// Keeps only known keys with valid values from a client-supplied patch.
+function sanitizeStatePatch(patch) {
+    const clean = {};
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return clean;
+    for (const [key, value] of Object.entries(patch)) {
+        const def = STATE_SCHEMA[key];
+        if (!def) {
+            console.warn(`Ignoring unknown state key "${key}".`);
+        } else if (!def.validate(value)) {
+            console.warn(`Ignoring invalid value for state key "${key}".`);
+        } else {
+            clean[key] = value;
+        }
+    }
+    return clean;
+}
+
+function getSharedState(state) {
+    return Object.fromEntries(Object.keys(STATE_SCHEMA).filter(key => STATE_SCHEMA[key].shared).map(key => [key, state[key]]));
+}
+
+function sendSyncState(client, patch) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(JSON.stringify({ type: 'syncState', payload: { patch } }));
+    }
+}
+
+/**
+ * Gives a joining client the current shared state of the session.
+ * The reference is the member that reported a state most recently (ties and
+ * "nobody reported yet" fall back to the oldest member).
+ * @returns {Object} The patch to send to the joiner as its initial `syncState`.
+ *   Empty if no member has reported a state yet, so nobody gets reset to defaults.
+ */
+function adoptSessionState(joiningClient, existingClients) {
+    if (existingClients.length === 0) return {};
+    const reference = existingClients.reduce((newest, c) => c.stateUpdatedAt > newest.stateUpdatedAt ? c : newest);
+    if (reference.stateUpdatedAt === 0) return {};
+    const patch = getSharedState(reference.state);
+    Object.assign(joiningClient.state, patch);
+    return patch;
+}
+
+/**
+ * Handles a client's `updateState` message ("my state changed").
+ *
+ * payload: { patch: { <key>: <value>, … }, cause?: "user" | "syncResult" }
+ *
+ * - Keys/values that are unknown or invalid are dropped.
+ * - A patch that changes nothing is ignored.
+ * - "user" changes to shared keys are pushed to every other client that
+ *   doesn't have that value yet, as one `syncState` per client.
+ * - "syncResult" is a client reporting what it actually ended up with after a
+ *   `syncState`. It only corrects the sender's own entry and is never fanned
+ *   out, so a failed apply can't bounce between clients.
+ */
+function handleUpdateState(sender, session, payload) {
+    const patch = sanitizeStatePatch(payload?.patch);
+    const changedKeys = Object.keys(patch).filter(key => sender.state[key] !== patch[key]);
+    if (changedKeys.length === 0) return;
+
+    changedKeys.forEach(key => { sender.state[key] = patch[key]; });
+    sender.stateUpdatedAt = Date.now();
+    console.log(`State of client ${sender.id} updated:`, Object.fromEntries(changedKeys.map(key => [key, patch[key]])));
+
+    if (payload?.cause === 'syncResult') return;
+
+    const changedSharedKeys = changedKeys.filter(key => STATE_SCHEMA[key].shared);
+    if (changedSharedKeys.length === 0) return;
+
+    session.clients.forEach(other => {
+        if (other === sender) return;
+        const otherPatch = {};
+        changedSharedKeys.forEach(key => {
+            if (other.state[key] !== patch[key]) otherPatch[key] = patch[key];
+        });
+        if (Object.keys(otherPatch).length === 0) return;
+        Object.assign(other.state, otherPatch);
+        sendSyncState(other, otherPatch);
+    });
 }
 
 // Handle HTTP upgrade requests to upgrade them to WebSocket connections
@@ -50,7 +160,10 @@ server.on('upgrade', (request, socket, head) => {
     let client = {
         id: uuidv4(),
         ws: null,
-        metadata: { name: clientName, deviceType }
+        metadata: { name: clientName, deviceType },
+        state: createDefaultState(),
+        // 0 = this client never reported a state (joining alone doesn't count)
+        stateUpdatedAt: 0
     };
     let sessionId = null;
 
@@ -64,16 +177,20 @@ server.on('upgrade', (request, socket, head) => {
             console.log(`Created new session ${sessionId} for client ${client.id}.`);
             console.log("Number of sessions: ", Object.keys(sessions).length);
             const sessionData = getSessionDataForClients();
-            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData, lastRelayed: sessions[sessionId].lastRelayed ?? null }));
+            // The creator keeps the default state and reports its real state itself.
+            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData }));
 
         } else if (sessions[requestedSessionId]) {
             // Session ID found → join the existing session
             sessionId = requestedSessionId;
+            const initialSyncPatch = adoptSessionState(client, sessions[sessionId].clients);
             sessions[sessionId].clients.push(client);
             console.log(`Client ${client.id} joined session ${sessionId}.`);
             console.log("Clients in this session: ", sessions[sessionId].clients.length);
             const sessionData = getSessionDataForClients();
-            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData, lastRelayed: sessions[sessionId].lastRelayed ?? null }));
+            ws.send(JSON.stringify({ response: 'sessionJoined', sessionId, clientId: client.id, sessionData }));
+            // Always sent (even with an empty patch): tells the joiner its initial state is complete.
+            sendSyncState(client, initialSyncPatch);
             // Notify the other clients in the session
             const clientData = { id: client.id, metadata: client.metadata };
             sessions[sessionId].clients.forEach(c => {
@@ -122,18 +239,10 @@ server.on('upgrade', (request, socket, head) => {
                 }
             } else if (messageJson.message === "dissolveSession") {
                 dissolveSession(sessionId);
+            } else if (messageJson.type === "updateState") {
+                handleUpdateState(client, sessions[sessionId], messageJson.payload);
             } else if (messageJson.type) {
-                const targetedClientIds = Array.isArray(messageJson.client_targets) && messageJson.client_targets.length > 0
-                    ? messageJson.client_targets
-                    : null;
-                if (targetedClientIds === null) {
-                    sessions[sessionId].lastRelayed = { type: messageJson.type, payload: messageJson.payload };
-                }
-                sessions[sessionId].clients.forEach(c => {
-                    if (c.ws === ws || c.ws.readyState !== WebSocket.OPEN) return;
-                    if (targetedClientIds !== null && !targetedClientIds.includes(c.id)) return;
-                    c.ws.send(JSON.stringify({ type: messageJson.type, payload: messageJson.payload }));
-                });
+                console.warn(`Ignoring unknown message type "${messageJson.type}".`);
             }
         });
 
