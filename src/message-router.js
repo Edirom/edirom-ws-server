@@ -1,5 +1,7 @@
 const WebSocket = require('ws');
 const sessionLogger = require('./session-logger');
+const { sanitizeLabel } = require('./client');
+const { MAX_CLIENT_NAME_LENGTH } = require('./limits');
 
 // One handler per protocol.MESSAGES_TO_SERVER entry, keyed by the same
 // name. Dispatch iterates the registry (in declaration order) instead of
@@ -8,7 +10,7 @@ const sessionLogger = require('./session-logger');
 function createMessageRouter({ sessionStore, broadcast, state, protocol }) {
     const handlers = {
         updateClientName(ctx, messageJson) {
-            ctx.client.metadata.name = typeof messageJson.clientName === 'string' ? messageJson.clientName : 'unknown';
+            ctx.client.metadata.name = sanitizeLabel(messageJson.clientName, MAX_CLIENT_NAME_LENGTH);
             const sessionData = sessionStore.getSessionData(ctx.sessionId);
             broadcast.broadcastToSession(sessionStore.get(ctx.sessionId), protocol.build('sessionDataUpdated', { sessionData }), ctx.ws);
         },

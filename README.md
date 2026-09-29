@@ -21,6 +21,12 @@ Copy `.env.example` to `.env`.
 |---|---|
 | `DEBUG_TOKEN` | Enables `GET /debug/sessions` (send it as the `X-Debug-Token` header). Unset = endpoint disabled. |
 | `PORT` | Defaults to `3000`. |
+| `MAX_CONNECTIONS` | Max simultaneously open WebSocket connections. Over the limit, new connections get HTTP `503`. Default `1000`. |
+| `MAX_SESSIONS` | Max simultaneous sessions. Creating another one is answered with `error`/`serverFull`. Default `1000`. |
+| `MAX_CLIENTS_PER_SESSION` | Max members per session. Joining a full session is answered with `error`/`sessionFull`. Default `100`. |
+| `MESSAGE_RATE_PER_SEC` / `MESSAGE_BURST` | Per-connection token bucket: sustained messages per second / burst size. A client exceeding it is disconnected with close code `1008`. Defaults `40` / `80`. |
+
+Client names are stripped of control characters and capped at 64 characters (device types: 32). Every connection must send a `protocolVersion` matching the server's (see the wire protocol below); otherwise it is answered with `error`/`protocolMismatch` and closed.
 
 ## Observability
 

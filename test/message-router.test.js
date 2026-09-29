@@ -135,6 +135,17 @@ test('updateClientName ignores a non-string clientName', async () => {
     assert.equal(sender.metadata.name, 'unknown');
 });
 
+test('updateClientName strips control characters and caps the name at 64 characters', async () => {
+    const protocol = await loadProtocol();
+    const sender = { id: 'c1', ws: fakeSocket(), metadata: { name: 'Alice' } };
+    const session = { clients: [sender] };
+    const router = createMessageRouter({ sessionStore: fakeSessionStore(session), broadcast: fakeBroadcast(), state: {}, protocol });
+
+    router.handleMessage({ client: sender, sessionId: 'S1', ws: sender.ws }, { message: 'updateClientName', clientName: 'Bo\nb' + 'y'.repeat(500) });
+
+    assert.equal(sender.metadata.name, 'Bob' + 'y'.repeat(61));
+});
+
 test('dispatch: an unrecognized "type" value is logged', async () => {
     const protocol = await loadProtocol();
     const sender = { id: 'c1', ws: fakeSocket() };

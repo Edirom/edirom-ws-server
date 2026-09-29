@@ -6,6 +6,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const WebSocket = require('ws');
 const { loadProtocol } = require('../src/load-ws-protocol');
+const { buildUrl } = require('./helpers');
 
 // Exercises the real server.js entrypoint (not just src/app.js's createServer())
 // as a child process, since the shutdown() function that sends this message
@@ -62,9 +63,10 @@ function buildServerCopyWithoutServerShutdown() {
     return dir;
 }
 
-function connectAndJoin(port) {
+async function connectAndJoin(port) {
+    const url = await buildUrl(port, '/?clientName=Alice&deviceType=desktop');
     return new Promise((resolve, reject) => {
-        const ws = new WebSocket(`ws://localhost:${port}/?clientName=Alice&deviceType=desktop`);
+        const ws = new WebSocket(url);
         const messages = [];
         ws.on('message', (data) => {
             const msg = JSON.parse(data);

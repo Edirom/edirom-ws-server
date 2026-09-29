@@ -8,13 +8,17 @@ const broadcast = require('./broadcast');
 const state = require('./state');
 const { loadProtocol } = require('./load-ws-protocol');
 const { startHeartbeat } = require('./heartbeat');
+const { loadLimits } = require('./limits');
 
 // Wires express + http + ws together without starting to listen, so tests
 // can boot a real server on an ephemeral port. Async because the shared
 // protocol module (vendored as a git submodule) is a real ES module and
 // must be loaded via dynamic import().
-async function createServer() {
+// `limits` overrides individual caps (see limits.js); tests use it to hit a
+// cap with a handful of sockets instead of a thousand.
+async function createServer({ limits: limitOverrides = {} } = {}) {
     const protocol = await loadProtocol();
+    const limits = { ...loadLimits(), ...limitOverrides };
 
     const app = express();
     const server = http.createServer(app);
@@ -27,7 +31,7 @@ async function createServer() {
     const sessionStore = createSessionStore();
     const messageRouter = createMessageRouter({ sessionStore, broadcast, state, protocol });
 
-    server.on('upgrade', createUpgradeHandler({ wss, sessionStore, messageRouter, protocol }));
+    server.on('upgrade', createUpgradeHandler({ wss, sessionStore, messageRouter, protocol, limits }));
 
     // Reaps sockets that stop responding (e.g. a dropped network) so they
     // don't linger as ghost clients for months. Torn down when the http

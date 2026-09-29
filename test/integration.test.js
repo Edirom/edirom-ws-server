@@ -1,31 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const WebSocket = require('ws');
 const { createServer } = require('../src/app');
-
-function listen(server) {
-    return new Promise((resolve) => {
-        server.listen(0, () => resolve(server.address().port));
-    });
-}
-
-// Buffers incoming messages from the moment the socket is created, so a
-// message the server sends before the test calls next() is never missed.
-function connectClient(port, query = '') {
-    const ws = new WebSocket(`ws://localhost:${port}${query}`);
-    const queue = [];
-    const waiters = [];
-    ws.on('message', (data) => {
-        const msg = JSON.parse(data);
-        if (waiters.length > 0) waiters.shift()(msg);
-        else queue.push(msg);
-    });
-    const next = () => (queue.length > 0 ? Promise.resolve(queue.shift()) : new Promise((resolve) => waiters.push(resolve)));
-    return new Promise((resolve, reject) => {
-        ws.once('open', () => resolve({ ws, next }));
-        ws.once('error', reject);
-    });
-}
+const { listen, connectClient } = require('./helpers');
 
 test('full session lifecycle over the real wire protocol', async (t) => {
     const { server } = await createServer();
