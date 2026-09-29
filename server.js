@@ -20,11 +20,21 @@ console.log("I run!");
         const forceExitTimer = setTimeout(() => process.exit(exitCode), 5000);
 
         sessionStore.dissolveAll('serverShutdown').forEach(({ sockets, summary }) => {
-            // Distinct from sessionDissolved: tells clients the *server* is
-            // going away, not that their session specifically ended, so the
-            // component can show a "server unavailable" message instead of
-            // "session ended".
-            broadcast.closeWithMessage(sockets, protocol.build('serverShutdown'));
+            try {
+                // Distinct from sessionDissolved: tells clients the *server* is
+                // going away, not that their session specifically ended, so the
+                // component can show a "server unavailable" message instead of
+                // "session ended".
+                broadcast.closeWithMessage(sockets, protocol.build('serverShutdown'));
+            } catch (err) {
+                // A failure notifying this one session (e.g. a stale vendored
+                // protocol module missing this message) must not abort the
+                // rest of shutdown — still close its sockets and keep logging
+                // every other session instead of falling through to the 5s
+                // force-exit timer for all of them.
+                console.error(`shutdown: failed to notify session ${summary.sessionId}, closing its sockets without a message:`, err);
+                sockets.forEach((ws) => ws.close());
+            }
             sessionLogger.logSessionTerminated(summary);
         });
         try {
