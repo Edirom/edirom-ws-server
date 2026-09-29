@@ -20,7 +20,11 @@ console.log("I run!");
         const forceExitTimer = setTimeout(() => process.exit(exitCode), 5000);
 
         sessionStore.dissolveAll('serverShutdown').forEach(({ sockets, summary }) => {
-            broadcast.closeWithMessage(sockets, protocol.build('sessionDissolved'));
+            // Distinct from sessionDissolved: tells clients the *server* is
+            // going away, not that their session specifically ended, so the
+            // component can show a "server unavailable" message instead of
+            // "session ended".
+            broadcast.closeWithMessage(sockets, protocol.build('serverShutdown'));
             sessionLogger.logSessionTerminated(summary);
         });
         try {
@@ -48,6 +52,8 @@ console.log("I run!");
     });
 
     server.listen(port, () => {
-        console.log(`Server is listening on http://localhost:${port}`);
+        // server.address().port (not the `port` var) so this is correct even
+        // when PORT=0 asks the OS to pick a free port.
+        console.log(`Server is listening on http://localhost:${server.address().port}`);
     });
 })();
