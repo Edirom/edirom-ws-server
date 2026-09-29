@@ -28,7 +28,7 @@ function connectClient(port, query = '') {
 }
 
 test('full session lifecycle over the real wire protocol', async (t) => {
-    const { server } = createServer();
+    const { server } = await createServer();
     const port = await listen(server);
     t.after(() => server.close());
 
@@ -66,7 +66,7 @@ test('full session lifecycle over the real wire protocol', async (t) => {
 });
 
 test('joining an unknown session returns an error and closes the socket', async (t) => {
-    const { server } = createServer();
+    const { server } = await createServer();
     const port = await listen(server);
     t.after(() => server.close());
 

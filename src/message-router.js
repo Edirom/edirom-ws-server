@@ -1,20 +1,21 @@
 const WebSocket = require('ws');
 
-// Two dispatch tables, matching the two conventions real clients already
-// use: `message` for imperative commands, `type` for the state-sync
-// protocol. Not unified into one shape — that would be a wire change.
-function createMessageRouter({ sessionStore, broadcast, state }) {
-    const commandHandlers = {
+// One handler per protocol.MESSAGES_TO_SERVER entry, keyed by the same
+// name. Dispatch iterates the registry (in declaration order) instead of
+// hardcoding which wire field ('message' vs 'type') each one uses, so the
+// registry stays the single source of truth for both shape and dispatch.
+function createMessageRouter({ sessionStore, broadcast, state, protocol }) {
+    const handlers = {
         updateClientName(ctx, messageJson) {
             ctx.client.metadata.name = messageJson.clientName ?? 'unknown';
             const sessionData = sessionStore.getSessionData(ctx.sessionId);
-            broadcast.broadcastToSession(sessionStore.get(ctx.sessionId), { response: 'sessionDataUpdated', sessionData }, ctx.ws);
+            broadcast.broadcastToSession(sessionStore.get(ctx.sessionId), protocol.build('sessionDataUpdated', { sessionData }), ctx.ws);
         },
 
         removeClient(ctx, messageJson) {
             const target = sessionStore.findClient(ctx.sessionId, messageJson.clientId);
             if (target && target.ws.readyState === WebSocket.OPEN) {
-                broadcast.closeWithMessage([target.ws], { response: 'clientRemoved' });
+                broadcast.closeWithMessage([target.ws], protocol.build('clientRemoved'));
             }
         },
 
@@ -22,27 +23,43 @@ function createMessageRouter({ sessionStore, broadcast, state }) {
         // messages after confirming sessionStore.get(sessionId) succeeded.
         dissolveSession(ctx) {
             const sockets = sessionStore.dissolve(ctx.sessionId);
-            broadcast.closeWithMessage(sockets, { response: 'sessionDissolved' });
-        }
-    };
+            broadcast.closeWithMessage(sockets, protocol.build('sessionDissolved'));
+        },
 
-    const typeHandlers = {
         updateState(ctx, messageJson) {
             const session = sessionStore.get(ctx.sessionId);
             const ops = state.applyStateUpdate(ctx.client, session, messageJson.payload);
-            ops.forEach(({ client, patch }) => broadcast.sendSyncState(client, patch));
+            ops.forEach(({ client, patch }) => broadcast.safeSend(client.ws, protocol.build('syncState', { patch })));
         }
     };
 
+    // In registry declaration order — this order is what gives
+    // `message`-channel messages precedence over `type`-channel ones when
+    // (hypothetically) both fields were present on the same payload.
+    const toServerEntries = Object.entries(protocol.MESSAGES_TO_SERVER);
+
+    // Fail fast at startup if the handler map and the registry drift apart,
+    // rather than silently dropping a message in production.
+    for (const [name] of toServerEntries) {
+        if (!handlers[name]) {
+            throw new Error(`message-router: protocol message "${name}" (toServer) has no handler`);
+        }
+    }
+    for (const name of Object.keys(handlers)) {
+        if (!protocol.MESSAGES_TO_SERVER[name]) {
+            throw new Error(`message-router: handler "${name}" is not a registered toServer protocol message`);
+        }
+    }
+
     function handleMessage(ctx, messageJson) {
-        if (messageJson.message && commandHandlers[messageJson.message]) {
-            commandHandlers[messageJson.message](ctx, messageJson);
-        } else if (messageJson.type) {
-            if (typeHandlers[messageJson.type]) {
-                typeHandlers[messageJson.type](ctx, messageJson);
-            } else {
-                console.warn(`Ignoring unknown message type "${messageJson.type}".`);
+        for (const [name, def] of toServerEntries) {
+            if (messageJson[def.channel] === name) {
+                handlers[name](ctx, messageJson);
+                return;
             }
+        }
+        if (messageJson.type) {
+            console.warn(`Ignoring unknown message type "${messageJson.type}".`);
         }
     }
 

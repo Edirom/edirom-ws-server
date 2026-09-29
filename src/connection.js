@@ -5,24 +5,24 @@ const broadcast = require('./broadcast');
 
 // Handles HTTP upgrade requests, turning each one into a client joining
 // (or creating) a session, then wires that connection's message/close events.
-function createUpgradeHandler({ wss, sessionStore, messageRouter }) {
+function createUpgradeHandler({ wss, sessionStore, messageRouter, protocol }) {
     return function handleUpgrade(request, socket, head) {
         console.log("New connection!");
         const url = new URL(request.url, 'http://localhost');
 
-        if (url.searchParams.get('ping') === 'true') {
+        if (url.searchParams.get(protocol.CONNECT_PARAMS.ping) === 'true') {
             // Lightweight availability check: confirms the WebSocket upgrade path
             // works without creating or touching any session.
             wss.handleUpgrade(request, socket, head, (ws) => {
-                ws.send(JSON.stringify({ response: 'pong' }));
+                ws.send(JSON.stringify(protocol.build('pong')));
                 ws.close();
             });
             return;
         }
 
-        const requestedSessionId = url.searchParams.get('sessionId')?.toUpperCase() ?? null;
-        const clientName = (url.searchParams.get('clientName') ?? 'unknown').slice(0, 64);
-        const deviceType = (url.searchParams.get('deviceType') ?? 'unknown').slice(0, 32);
+        const requestedSessionId = url.searchParams.get(protocol.CONNECT_PARAMS.sessionId)?.toUpperCase() ?? null;
+        const clientName = (url.searchParams.get(protocol.CONNECT_PARAMS.clientName) ?? 'unknown').slice(0, 64);
+        const deviceType = (url.searchParams.get(protocol.CONNECT_PARAMS.deviceType) ?? 'unknown').slice(0, 32);
 
         const client = createClient({ name: clientName, deviceType });
         let sessionId = null;
@@ -35,7 +35,7 @@ function createUpgradeHandler({ wss, sessionStore, messageRouter }) {
                 sessionId = sessionStore.create(client);
                 const sessionData = sessionStore.getSessionData(sessionId);
                 // The creator keeps the default state and reports its real state itself.
-                broadcast.safeSend(ws, { response: 'sessionJoined', sessionId, clientId: client.id, sessionData });
+                broadcast.safeSend(ws, protocol.build('sessionJoined', { sessionId, clientId: client.id, sessionData }));
 
             } else if (sessionStore.get(requestedSessionId)) {
                 // Session ID found → join the existing session
@@ -43,17 +43,17 @@ function createUpgradeHandler({ wss, sessionStore, messageRouter }) {
                 const initialSyncPatch = adoptSessionState(client, sessionStore.get(sessionId).clients);
                 sessionStore.addClient(sessionId, client);
                 const sessionData = sessionStore.getSessionData(sessionId);
-                broadcast.safeSend(ws, { response: 'sessionJoined', sessionId, clientId: client.id, sessionData });
+                broadcast.safeSend(ws, protocol.build('sessionJoined', { sessionId, clientId: client.id, sessionData }));
                 // Always sent (even with an empty patch): tells the joiner its initial state is complete.
-                broadcast.sendSyncState(client, initialSyncPatch);
+                broadcast.safeSend(ws, protocol.build('syncState', { patch: initialSyncPatch }));
                 // Notify the other clients in the session
                 const clientData = { id: client.id, metadata: client.metadata };
-                broadcast.broadcastToSession(sessionStore.get(sessionId), { response: 'clientConnected', clientData, sessionData }, ws);
+                broadcast.broadcastToSession(sessionStore.get(sessionId), protocol.build('clientConnected', { clientData, sessionData }), ws);
 
             } else {
                 // Session ID not found → send error and close
                 console.log(`Session ${requestedSessionId} not found. Closing connection.`);
-                broadcast.safeSend(ws, { response: 'error', reason: 'sessionNotFound' });
+                broadcast.safeSend(ws, protocol.build('error', { reason: protocol.ERROR_REASONS.sessionNotFound }));
                 ws.close();
                 return;
             }
@@ -84,7 +84,7 @@ function createUpgradeHandler({ wss, sessionStore, messageRouter }) {
                 if (remainingSession) {
                     const clientData = { id: client.id, metadata: client.metadata };
                     const sessionData = sessionStore.getSessionData(sessionId);
-                    broadcast.broadcastToSession(remainingSession, { response: 'clientDisconnected', clientData, sessionData }, ws);
+                    broadcast.broadcastToSession(remainingSession, protocol.build('clientDisconnected', { clientData, sessionData }), ws);
                 }
             });
         });

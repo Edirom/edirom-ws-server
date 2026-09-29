@@ -1,0 +1,3 @@
+[submodule "vendor/edirom-connected-workspace"]
+	path = vendor/edirom-connected-workspace
+	url = https://github.com/Edirom/edirom-connected-workspace.git

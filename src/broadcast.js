@@ -9,10 +9,6 @@ function safeSend(ws, obj) {
     }
 }
 
-function sendSyncState(client, patch) {
-    safeSend(client.ws, { type: 'syncState', payload: { patch } });
-}
-
 function broadcastToSession(session, obj, excludeWs) {
     session.clients.forEach(c => {
         if (c.ws === excludeWs) return;
@@ -30,4 +26,4 @@ function closeWithMessage(sockets, obj) {
     });
 }
 
-module.exports = { safeSend, sendSyncState, broadcastToSession, closeWithMessage };
+module.exports = { safeSend, broadcastToSession, closeWithMessage };
