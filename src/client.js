@@ -8,7 +8,8 @@ function createClient({ name, deviceType }) {
         metadata: { name, deviceType },
         state: createDefaultState(),
         // 0 = this client never reported a state (joining alone doesn't count)
-        stateUpdatedAt: 0
+        stateUpdatedAt: 0,
+        joinedAt: Date.now()
     };
 }
 

@@ -2,6 +2,7 @@ const WebSocket = require('ws');
 const { createClient } = require('./client');
 const { adoptSessionState } = require('./state');
 const broadcast = require('./broadcast');
+const sessionLogger = require('./session-logger');
 
 // Handles HTTP upgrade requests, turning each one into a client joining
 // (or creating) a session, then wires that connection's message/close events.
@@ -79,13 +80,15 @@ function createUpgradeHandler({ wss, sessionStore, messageRouter, protocol }) {
             ws.on('close', () => {
                 console.log("Connection closed!");
                 if (!sessionId || !sessionStore.get(sessionId)) return;
-                sessionStore.removeClient(ws, sessionId);
-                const remainingSession = sessionStore.get(sessionId);
-                if (remainingSession) {
-                    const clientData = { id: client.id, metadata: client.metadata };
-                    const sessionData = sessionStore.getSessionData(sessionId);
-                    broadcast.broadcastToSession(remainingSession, protocol.build('clientDisconnected', { clientData, sessionData }), ws);
+                const summary = sessionStore.removeClient(ws, sessionId);
+                if (summary) {
+                    sessionLogger.logSessionTerminated(summary);
+                    return;
                 }
+                const remainingSession = sessionStore.get(sessionId);
+                const clientData = { id: client.id, metadata: client.metadata };
+                const sessionData = sessionStore.getSessionData(sessionId);
+                broadcast.broadcastToSession(remainingSession, protocol.build('clientDisconnected', { clientData, sessionData }), ws);
             });
         });
     };

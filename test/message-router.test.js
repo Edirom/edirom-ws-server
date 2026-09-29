@@ -27,7 +27,7 @@ function fakeSessionStore(session) {
         get: () => session,
         getSessionData: () => ({ sessionMembers: session.clients.map(c => ({ id: c.id, metadata: c.metadata })) }),
         findClient: (sessionId, clientId) => session.clients.find(c => c.id === clientId),
-        dissolve: () => session.clients.map(c => c.ws)
+        dissolve: () => ({ sockets: session.clients.map(c => c.ws), summary: null })
     };
 }
 

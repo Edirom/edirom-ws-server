@@ -28,6 +28,20 @@ async function createServer() {
         res.send('WebSocket server is running');
     });
 
+    // Read-only introspection into current in-memory state. Fails closed if
+    // DEBUG_TOKEN isn't configured, rather than running unauthenticated.
+    if (!process.env.DEBUG_TOKEN) {
+        console.warn('DEBUG_TOKEN is not set — GET /debug/sessions is disabled.');
+    }
+    app.get('/debug/sessions', (req, res) => {
+        const token = process.env.DEBUG_TOKEN;
+        if (!token || req.get('X-Debug-Token') !== token) {
+            res.status(404).end();
+            return;
+        }
+        res.json({ sessionCount: sessionStore.count(), sessions: sessionStore.listSessions() });
+    });
+
     return { server, wss, sessionStore };
 }
 

@@ -10,7 +10,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "dotenv": "^18.0.4",
     "express": "^4.19.2",
+    "rotating-file-stream": "^3.2.10",
     "uuid": "^10.0.0",
     "ws": "^8.18.0"
   }

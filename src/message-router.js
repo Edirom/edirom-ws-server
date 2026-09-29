@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const sessionLogger = require('./session-logger');
 
 // One handler per protocol.MESSAGES_TO_SERVER entry, keyed by the same
 // name. Dispatch iterates the registry (in declaration order) instead of
@@ -22,7 +23,8 @@ function createMessageRouter({ sessionStore, broadcast, state, protocol }) {
         // The session is guaranteed to exist here: connection.js only forwards
         // messages after confirming sessionStore.get(sessionId) succeeded.
         dissolveSession(ctx) {
-            const sockets = sessionStore.dissolve(ctx.sessionId);
+            const { sockets, summary } = sessionStore.dissolve(ctx.sessionId);
+            if (summary) sessionLogger.logSessionTerminated(summary);
             broadcast.closeWithMessage(sockets, protocol.build('sessionDissolved'));
         },
 
