@@ -7,6 +7,7 @@ const { createUpgradeHandler } = require('./connection');
 const broadcast = require('./broadcast');
 const state = require('./state');
 const { loadProtocol } = require('./load-ws-protocol');
+const { startHeartbeat } = require('./heartbeat');
 
 // Wires express + http + ws together without starting to listen, so tests
 // can boot a real server on an ephemeral port. Async because the shared
@@ -17,12 +18,22 @@ async function createServer() {
 
     const app = express();
     const server = http.createServer(app);
-    const wss = new WebSocket.Server({ noServer: true });
+    // Actual payloads (names, session ids, small state patches) are tiny;
+    // capping here bounds per-message memory use against a buggy/oversized client.
+    const wss = new WebSocket.Server({ noServer: true, maxPayload: 64 * 1024 });
+    wss.on('error', (err) => console.error('WebSocket.Server error:', err));
+    server.on('error', (err) => console.error('http server error:', err));
 
     const sessionStore = createSessionStore();
     const messageRouter = createMessageRouter({ sessionStore, broadcast, state, protocol });
 
     server.on('upgrade', createUpgradeHandler({ wss, sessionStore, messageRouter, protocol }));
+
+    // Reaps sockets that stop responding (e.g. a dropped network) so they
+    // don't linger as ghost clients for months. Torn down when the http
+    // server fully closes (real shutdown, and every test's server.close()).
+    const stopHeartbeat = startHeartbeat(wss);
+    server.on('close', stopHeartbeat);
 
     app.get('/', (req, res) => {
         res.send('WebSocket server is running');
@@ -42,7 +53,7 @@ async function createServer() {
         res.json({ sessionCount: sessionStore.count(), sessions: sessionStore.listSessions() });
     });
 
-    return { server, wss, sessionStore };
+    return { server, wss, sessionStore, protocol };
 }
 
 module.exports = { createServer };

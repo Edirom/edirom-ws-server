@@ -159,14 +159,20 @@ function createSessionStore() {
     }
 
     // Terminates every still-open session at once (server shutdown) and
-    // returns their termination summaries for the caller to log before exiting.
+    // returns, per session, the sockets to notify+close plus the termination
+    // summary to log — same shape as dissolve(), so the caller can't silently
+    // drop connected clients the way a summary-only return would invite.
     function dissolveAll(reason) {
         const now = Date.now();
-        const summaries = Object.entries(sessions).map(([sessionId, session]) =>
-            buildTerminationSummary(session, sessionId, reason, now)
-        );
+        const results = Object.entries(sessions).map(([sessionId, session]) => {
+            const sockets = session.clients
+                .map(c => c.ws)
+                .filter(socket => socket && socket.readyState === WebSocket.OPEN);
+            const summary = buildTerminationSummary(session, sessionId, reason, now);
+            return { sockets, summary };
+        });
         Object.keys(sessions).forEach(sessionId => delete sessions[sessionId]);
-        return summaries;
+        return results;
     }
 
     // Live snapshot of every session for the debug endpoint — distinct from

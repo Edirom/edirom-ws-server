@@ -2,28 +2,50 @@ require('dotenv').config();
 
 const { createServer } = require('./src/app');
 const sessionLogger = require('./src/session-logger');
+const broadcast = require('./src/broadcast');
 
 console.log("I run!");
 
 (async () => {
     const port = process.env.PORT || 3000;
-    const { server, sessionStore } = await createServer();
+    const { server, sessionStore, protocol } = await createServer();
 
     let shuttingDown = false;
-    async function shutdown(signal) {
+    async function shutdown(signal, exitCode = 0) {
         if (shuttingDown) return;
         shuttingDown = true;
         console.log(`Received ${signal}. Logging ${sessionStore.count()} open session(s) before exit.`);
-        sessionStore.dissolveAll('serverShutdown').forEach(summary => sessionLogger.logSessionTerminated(summary));
+        // Last-resort insurance: if the flush below hangs, don't leave the
+        // process alive-but-unresponsive on an unattended box.
+        const forceExitTimer = setTimeout(() => process.exit(exitCode), 5000);
+
+        sessionStore.dissolveAll('serverShutdown').forEach(({ sockets, summary }) => {
+            broadcast.closeWithMessage(sockets, protocol.build('sessionDissolved'));
+            sessionLogger.logSessionTerminated(summary);
+        });
         try {
             await sessionLogger.close();
         } catch (err) {
             console.error('session-logger: failed to flush on shutdown:', err);
         }
-        process.exit(0);
+        clearTimeout(forceExitTimer);
+        process.exit(exitCode);
     }
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
+
+    // Last-resort net: something truly unexpected slipped past every
+    // targeted guard elsewhere. State may be corrupted at this point, so the
+    // safest move is to log, try to shut down cleanly, and exit — relying on
+    // the deploy's restart policy to bring the process back up.
+    process.on('uncaughtException', (err) => {
+        console.error('FATAL uncaughtException:', err);
+        shutdown('uncaughtException', 1);
+    });
+    process.on('unhandledRejection', (reason) => {
+        console.error('FATAL unhandledRejection:', reason);
+        shutdown('unhandledRejection', 1);
+    });
 
     server.listen(port, () => {
         console.log(`Server is listening on http://localhost:${port}`);

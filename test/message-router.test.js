@@ -108,6 +108,33 @@ test('dispatch: an unrecognized "message" with no "type" produces no handler cal
     assert.equal(broadcast.sent.length, 0);
 });
 
+test('handleMessage ignores null/array/primitive payloads instead of throwing', async () => {
+    const protocol = await loadProtocol();
+    const sender = { id: 'c1', ws: fakeSocket(), metadata: { name: 'Alice' } };
+    const session = { clients: [sender] };
+    const broadcast = fakeBroadcast();
+    const router = createMessageRouter({ sessionStore: fakeSessionStore(session), broadcast, state: {}, protocol });
+    const ctx = { client: sender, sessionId: 'S1', ws: sender.ws };
+
+    assert.doesNotThrow(() => router.handleMessage(ctx, null));
+    assert.doesNotThrow(() => router.handleMessage(ctx, [1, 2, 3]));
+    assert.doesNotThrow(() => router.handleMessage(ctx, 'just a string'));
+    assert.doesNotThrow(() => router.handleMessage(ctx, 42));
+    assert.equal(broadcast.sent.length, 0);
+});
+
+test('updateClientName ignores a non-string clientName', async () => {
+    const protocol = await loadProtocol();
+    const sender = { id: 'c1', ws: fakeSocket(), metadata: { name: 'Alice' } };
+    const session = { clients: [sender] };
+    const broadcast = fakeBroadcast();
+    const router = createMessageRouter({ sessionStore: fakeSessionStore(session), broadcast, state: {}, protocol });
+
+    router.handleMessage({ client: sender, sessionId: 'S1', ws: sender.ws }, { message: 'updateClientName', clientName: { evil: 'object' } });
+
+    assert.equal(sender.metadata.name, 'unknown');
+});
+
 test('dispatch: an unrecognized "type" value is logged', async () => {
     const protocol = await loadProtocol();
     const sender = { id: 'c1', ws: fakeSocket() };

@@ -133,17 +133,22 @@ test('roster keeps members who already left, with join/leave order and durations
     assert.equal(aliceSummary.leaveOrder, 2);
 });
 
-test('dissolveAll() terminates every session at once with the given reason', () => {
+test('dissolveAll() terminates every session at once and returns sockets to notify', () => {
     const store = createSessionStore();
-    const sessionId1 = store.create({ id: 'c1', ws: fakeSocket(), joinedAt: Date.now() });
-    const sessionId2 = store.create({ id: 'c2', ws: fakeSocket(), joinedAt: Date.now() });
+    const openSocket = fakeSocket(WebSocket.OPEN);
+    const closedSocket = fakeSocket(WebSocket.CLOSED);
+    const sessionId1 = store.create({ id: 'c1', ws: openSocket, joinedAt: Date.now() });
+    const sessionId2 = store.create({ id: 'c2', ws: closedSocket, joinedAt: Date.now() });
 
-    const summaries = store.dissolveAll('serverShutdown');
+    const results = store.dissolveAll('serverShutdown');
 
-    assert.equal(summaries.length, 2);
-    assert.ok(summaries.every(s => s.reason === 'serverShutdown'));
+    assert.equal(results.length, 2);
+    assert.ok(results.every(({ summary }) => summary.reason === 'serverShutdown'));
     assert.equal(store.count(), 0);
-    assert.deepEqual(new Set(summaries.map(s => s.sessionId)), new Set([sessionId1, sessionId2]));
+    assert.deepEqual(new Set(results.map(r => r.summary.sessionId)), new Set([sessionId1, sessionId2]));
+    // Only OPEN sockets are returned for the caller to notify+close.
+    const allSockets = results.flatMap(r => r.sockets);
+    assert.deepEqual(allSockets, [openSocket]);
 });
 
 test('buildTerminationSummary() is a pure function of a session snapshot', () => {

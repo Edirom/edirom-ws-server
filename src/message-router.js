@@ -8,7 +8,7 @@ const sessionLogger = require('./session-logger');
 function createMessageRouter({ sessionStore, broadcast, state, protocol }) {
     const handlers = {
         updateClientName(ctx, messageJson) {
-            ctx.client.metadata.name = messageJson.clientName ?? 'unknown';
+            ctx.client.metadata.name = typeof messageJson.clientName === 'string' ? messageJson.clientName : 'unknown';
             const sessionData = sessionStore.getSessionData(ctx.sessionId);
             broadcast.broadcastToSession(sessionStore.get(ctx.sessionId), protocol.build('sessionDataUpdated', { sessionData }), ctx.ws);
         },
@@ -54,6 +54,10 @@ function createMessageRouter({ sessionStore, broadcast, state, protocol }) {
     }
 
     function handleMessage(ctx, messageJson) {
+        if (messageJson === null || typeof messageJson !== 'object' || Array.isArray(messageJson)) {
+            console.warn('Ignoring non-object message payload.');
+            return;
+        }
         for (const [name, def] of toServerEntries) {
             if (messageJson[def.channel] === name) {
                 handlers[name](ctx, messageJson);

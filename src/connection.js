@@ -9,12 +9,18 @@ const sessionLogger = require('./session-logger');
 function createUpgradeHandler({ wss, sessionStore, messageRouter, protocol }) {
     return function handleUpgrade(request, socket, head) {
         console.log("New connection!");
+        // Cheap insurance: every path below this point until wss.handleUpgrade()
+        // takes over is currently synchronous, but a socket-level 'error' with no
+        // listener would crash the process, so cover it unconditionally.
+        socket.on('error', (err) => console.error('raw socket error during upgrade:', err));
+
         const url = new URL(request.url, 'http://localhost');
 
         if (url.searchParams.get(protocol.CONNECT_PARAMS.ping) === 'true') {
             // Lightweight availability check: confirms the WebSocket upgrade path
             // works without creating or touching any session.
             wss.handleUpgrade(request, socket, head, (ws) => {
+                ws.on('error', (err) => console.error('ping ws error:', err));
                 ws.send(JSON.stringify(protocol.build('pong')));
                 ws.close();
             });
@@ -29,7 +35,14 @@ function createUpgradeHandler({ wss, sessionStore, messageRouter, protocol }) {
         let sessionId = null;
 
         wss.handleUpgrade(request, socket, head, (ws) => {
+            ws.on('error', (err) => console.error(`ws error (session ${sessionId ?? 'pending'}, client ${client.id}):`, err));
             client.ws = ws;
+            // Heartbeat bookkeeping: 'pong' is the protocol-level control frame
+            // ws replies with automatically when we .ping() it below — distinct
+            // from the application-level {response:'pong'} JSON message sent on
+            // the ?ping=true short path above.
+            ws.isAlive = true;
+            ws.on('pong', () => { ws.isAlive = true; });
 
             if (requestedSessionId === null) {
                 // No session ID provided → create a new session
@@ -74,7 +87,11 @@ function createUpgradeHandler({ wss, sessionStore, messageRouter, protocol }) {
                     }
                     return;
                 }
-                messageRouter.handleMessage({ client, sessionId, ws }, messageJson);
+                try {
+                    messageRouter.handleMessage({ client, sessionId, ws }, messageJson);
+                } catch (err) {
+                    console.error(`message-router: unhandled error for session ${sessionId}, client ${client.id}:`, err);
+                }
             });
 
             ws.on('close', () => {
