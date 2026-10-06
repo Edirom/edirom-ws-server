@@ -168,3 +168,16 @@ test('buildTerminationSummary() is a pure function of a session snapshot', () =>
     // Calling it again with the same input produces the same output.
     assert.deepEqual(buildTerminationSummary(session, 'ABC123', 'explicitDissolve', 5000), summary);
 });
+
+test('overview counts connections per session, oldest session first, with no member details', () => {
+    const store = createSessionStore();
+    const first = store.create({ id: 'a', ws: {}, metadata: {}, joinedAt: 1 });
+    store.addClient(first, { id: 'b', ws: {}, metadata: {}, joinedAt: 2 });
+    store.create({ id: 'c', ws: {}, metadata: {}, joinedAt: 3 });
+
+    const { connections, sessions } = store.overview();
+
+    assert.equal(connections, 3);
+    assert.deepEqual(sessions.map((s) => [s.sessionId, s.connections]), [[first, 2], [sessions[1].sessionId, 1]]);
+    assert.deepEqual(Object.keys(sessions[0]).sort(), ['connections', 'createdAt', 'sessionId']);
+});

@@ -18,12 +18,12 @@ function startServer({ cwd = path.join(__dirname, '..') } = {}) {
     return new Promise((resolve, reject) => {
         const child = spawn(process.execPath, ['server.js'], {
             cwd,
-            env: { ...process.env, PORT: '0' }
+            env: { ...process.env, PORT: '0', LOG_LEVEL: 'info', LOG_FORMAT: 'pretty' }
         });
         let output = '';
         const onData = (chunk) => {
             output += chunk.toString();
-            const match = output.match(/Server is listening on http:\/\/localhost:(\d+)/);
+            const match = output.match(/listening on http:\/\/localhost:(\d+)/);
             if (match) {
                 child.stdout.off('data', onData);
                 resolve({ child, port: Number(match[1]) });
@@ -46,7 +46,7 @@ function startServer({ cwd = path.join(__dirname, '..') } = {}) {
 function buildServerCopyWithoutServerShutdown() {
     const repoRoot = path.join(__dirname, '..');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-server-stale-protocol-'));
-    for (const entry of ['server.js', 'src', 'vendor']) {
+    for (const entry of ['server.js', 'package.json', 'src', 'vendor']) {
         fs.cpSync(path.join(repoRoot, entry), path.join(dir, entry), { recursive: true });
     }
     fs.symlinkSync(path.join(repoRoot, 'node_modules'), path.join(dir, 'node_modules'));

@@ -78,8 +78,6 @@ function createSessionStore() {
             peakConcurrentMembers: 1,
             leaveCounter: 0
         };
-        console.log(`Created new session ${sessionId} for client ${client.id}.`);
-        console.log("Number of sessions: ", Object.keys(sessions).length);
         return sessionId;
     }
 
@@ -92,8 +90,6 @@ function createSessionStore() {
         session.clients.push(client);
         session.roster.push(makeRosterEntry(client, session.roster.length + 1));
         session.peakConcurrentMembers = Math.max(session.peakConcurrentMembers, session.clients.length);
-        console.log(`Client ${client.id} joined session ${sessionId}.`);
-        console.log("Clients in this session: ", session.clients.length);
     }
 
     // Returns the termination summary if removing this client just emptied
@@ -114,11 +110,9 @@ function createSessionStore() {
             }
         }
 
-        console.log("Clients in this session: ", session.clients.length);
         if (session.clients.length === 0) {
             const summary = buildTerminationSummary(session, sessionId, 'allMembersLeft', Date.now());
             delete sessions[sessionId];
-            console.log("Number of sessions: ", Object.keys(sessions).length);
             return summary;
         }
         return null;
@@ -148,8 +142,6 @@ function createSessionStore() {
         const summary = buildTerminationSummary(session, sessionId, 'explicitDissolve', Date.now());
 
         delete sessions[sessionId];
-        console.log(`Session ${sessionId} dissolved.`);
-        console.log("Number of sessions: ", Object.keys(sessions).length);
 
         return { sockets: socketsToClose, summary };
     }
@@ -175,6 +167,15 @@ function createSessionStore() {
         return results;
     }
 
+    // Lightweight counts for the console log: no member details, nothing a
+    // client controls. Oldest session first, so the list reads stably.
+    function overview() {
+        const list = Object.entries(sessions)
+            .map(([sessionId, session]) => ({ sessionId, connections: session.clients.length, createdAt: session.createdAt }))
+            .sort((a, b) => a.createdAt - b.createdAt);
+        return { connections: list.reduce((sum, s) => sum + s.connections, 0), sessions: list };
+    }
+
     // Live snapshot of every session for the debug endpoint — distinct from
     // buildTerminationSummary(), which only fires once a session ends.
     function listSessions() {
@@ -194,7 +195,7 @@ function createSessionStore() {
         }));
     }
 
-    return { create, get, addClient, removeClient, findClient, getSessionData, dissolve, dissolveAll, count, listSessions };
+    return { create, get, addClient, removeClient, findClient, getSessionData, dissolve, dissolveAll, count, overview, listSessions };
 }
 
 module.exports = { createSessionStore, buildTerminationSummary };

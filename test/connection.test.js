@@ -36,6 +36,7 @@ function fakeSessionStore(session = { clients: [] }) {
         create: (client) => { session.clients.push(client); return 'SESSION'; },
         get: (id) => (id === 'SESSION' ? session : undefined),
         count: () => 0,
+        overview: () => ({ connections: 0, sessions: [] }),
         addClient: () => {},
         removeClient: () => null,
         getSessionData: () => ({ sessionMembers: [] })

@@ -5,6 +5,14 @@ const path = require('node:path');
 const WebSocket = require('ws');
 const { createMessageRouter } = require('../src/message-router');
 const { loadProtocol } = require('../src/load-ws-protocol');
+const { createLogger } = require('../src/logger');
+
+// A real logger writing into arrays, so tests assert on actual output lines.
+function capturingLogger(options) {
+    const lines = [];
+    const sink = { write: (line) => lines.push(line.trimEnd()) };
+    return Object.assign(createLogger({ out: sink, err: sink, ...options }), { lines });
+}
 
 function fakeSocket() {
     return { readyState: WebSocket.OPEN, send: () => {}, close: () => {} };
@@ -27,6 +35,7 @@ function fakeSessionStore(session) {
         get: () => session,
         getSessionData: () => ({ sessionMembers: session.clients.map(c => ({ id: c.id, metadata: c.metadata })) }),
         findClient: (sessionId, clientId) => session.clients.find(c => c.id === clientId),
+        overview: () => ({ connections: 0, sessions: [] }),
         dissolve: () => ({ sockets: session.clients.map(c => c.ws), summary: null })
     };
 }
@@ -151,17 +160,11 @@ test('dispatch: an unrecognized "type" value is logged', async () => {
     const sender = { id: 'c1', ws: fakeSocket() };
     const session = { clients: [sender] };
     const broadcast = fakeBroadcast();
-    const router = createMessageRouter({ sessionStore: fakeSessionStore(session), broadcast, state: {}, protocol });
+    const log = capturingLogger();
+    const router = createMessageRouter({ sessionStore: fakeSessionStore(session), broadcast, state: {}, protocol, log });
 
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (msg) => warnings.push(msg);
-    try {
-        router.handleMessage({ client: sender, sessionId: 'S1', ws: sender.ws }, { type: 'bogus' });
-    } finally {
-        console.warn = originalWarn;
-    }
+    router.handleMessage({ client: sender, sessionId: 'S1', ws: sender.ws }, { type: 'bogus' });
 
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /bogus/);
+    assert.equal(log.lines.length, 1);
+    assert.match(log.lines[0], /WARN.*bogus/);
 });

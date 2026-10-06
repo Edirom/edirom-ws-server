@@ -19,8 +19,7 @@ test('loadLimits applies valid env overrides', () => {
     assert.deepEqual(limits, { maxConnections: 50, maxSessions: 7, maxClientsPerSession: 3, messageRatePerSec: 5, messageBurst: 9 });
 });
 
-test('loadLimits ignores garbage, zero, negative and fractional values', (t) => {
-    t.mock.method(console, 'warn', () => {});
+test('loadLimits ignores garbage, zero, negative and fractional values', () => {
     const limits = loadLimits({ MAX_CONNECTIONS: 'lots', MAX_SESSIONS: '0', MAX_CLIENTS_PER_SESSION: '-4', MESSAGE_RATE_PER_SEC: '1.5', MESSAGE_BURST: '' });
     assert.deepEqual(limits, DEFAULT_LIMITS);
 });

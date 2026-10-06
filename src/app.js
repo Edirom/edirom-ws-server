@@ -9,6 +9,7 @@ const state = require('./state');
 const { loadProtocol } = require('./load-ws-protocol');
 const { startHeartbeat } = require('./heartbeat');
 const { loadLimits } = require('./limits');
+const log = require('./logger');
 
 // Wires express + http + ws together without starting to listen, so tests
 // can boot a real server on an ephemeral port. Async because the shared
@@ -25,8 +26,8 @@ async function createServer({ limits: limitOverrides = {} } = {}) {
     // Actual payloads (names, session ids, small state patches) are tiny;
     // capping here bounds per-message memory use against a buggy/oversized client.
     const wss = new WebSocket.Server({ noServer: true, maxPayload: 64 * 1024 });
-    wss.on('error', (err) => console.error('WebSocket.Server error:', err));
-    server.on('error', (err) => console.error('http server error:', err));
+    wss.on('error', (err) => log.error('WebSocket server error', { err }));
+    server.on('error', (err) => log.error('HTTP server error', { err }));
 
     const sessionStore = createSessionStore();
     const messageRouter = createMessageRouter({ sessionStore, broadcast, state, protocol });
@@ -44,10 +45,8 @@ async function createServer({ limits: limitOverrides = {} } = {}) {
     });
 
     // Read-only introspection into current in-memory state. Fails closed if
-    // DEBUG_TOKEN isn't configured, rather than running unauthenticated.
-    if (!process.env.DEBUG_TOKEN) {
-        console.warn('DEBUG_TOKEN is not set — GET /debug/sessions is disabled.');
-    }
+    // DEBUG_TOKEN isn't configured, rather than running unauthenticated (the
+    // startup summary in server.js reports whether it is enabled).
     app.get('/debug/sessions', (req, res) => {
         const token = process.env.DEBUG_TOKEN;
         if (!token || req.get('X-Debug-Token') !== token) {
@@ -57,7 +56,7 @@ async function createServer({ limits: limitOverrides = {} } = {}) {
         res.json({ sessionCount: sessionStore.count(), sessions: sessionStore.listSessions() });
     });
 
-    return { server, wss, sessionStore, protocol };
+    return { server, wss, sessionStore, protocol, limits };
 }
 
 module.exports = { createServer };

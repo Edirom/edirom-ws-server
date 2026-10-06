@@ -2,12 +2,14 @@ const WebSocket = require('ws');
 const sessionLogger = require('./session-logger');
 const { sanitizeLabel } = require('./client');
 const { MAX_CLIENT_NAME_LENGTH } = require('./limits');
+const defaultLog = require('./logger');
+const { createActivityLog, describeClient, formatDuration, plural } = require('./activity-log');
 
 // One handler per protocol.MESSAGES_TO_SERVER entry, keyed by the same
 // name. Dispatch iterates the registry (in declaration order) instead of
 // hardcoding which wire field ('message' vs 'type') each one uses, so the
 // registry stays the single source of truth for both shape and dispatch.
-function createMessageRouter({ sessionStore, broadcast, state, protocol }) {
+function createMessageRouter({ sessionStore, broadcast, state, protocol, log = defaultLog, activity = createActivityLog({ sessionStore, log }) }) {
     const handlers = {
         updateClientName(ctx, messageJson) {
             ctx.client.metadata.name = sanitizeLabel(messageJson.clientName, MAX_CLIENT_NAME_LENGTH);
@@ -26,7 +28,12 @@ function createMessageRouter({ sessionStore, broadcast, state, protocol }) {
         // messages after confirming sessionStore.get(sessionId) succeeded.
         dissolveSession(ctx) {
             const { sockets, summary } = sessionStore.dissolve(ctx.sessionId);
-            if (summary) sessionLogger.logSessionTerminated(summary);
+            if (summary) {
+                sessionLogger.logSessionTerminated(summary);
+                activity.event(`${describeClient(ctx.client)} dissolved session ${ctx.sessionId}; session ended after ${formatDuration(summary.durationMs)} (${plural(sockets.length, 'member')} disconnected)`, {
+                    event: 'session_ended', sessionId: ctx.sessionId, reason: summary.reason, durationMs: summary.durationMs, clientId: ctx.client.id
+                });
+            }
             broadcast.closeWithMessage(sockets, protocol.build('sessionDissolved'));
         },
 
@@ -57,7 +64,7 @@ function createMessageRouter({ sessionStore, broadcast, state, protocol }) {
 
     function handleMessage(ctx, messageJson) {
         if (messageJson === null || typeof messageJson !== 'object' || Array.isArray(messageJson)) {
-            console.warn('Ignoring non-object message payload.');
+            log.warn('Ignored message: payload is not a JSON object', {}, { throttle: 'bad-payload' });
             return;
         }
         for (const [name, def] of toServerEntries) {
@@ -67,7 +74,7 @@ function createMessageRouter({ sessionStore, broadcast, state, protocol }) {
             }
         }
         if (messageJson.type) {
-            console.warn(`Ignoring unknown message type "${messageJson.type}".`);
+            log.warn(`Ignored message of unknown type ${JSON.stringify(String(messageJson.type).slice(0, 50))}`, {}, { throttle: 'unknown-type' });
         }
     }
 

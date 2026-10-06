@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const rfs = require('rotating-file-stream');
+const log = require('./logger');
 
 // Fixed path — not configurable, since the only thing that actually matters
 // to an operator is which directory to mount (see Dockerfile's VOLUME).
@@ -30,7 +31,7 @@ function createSessionLogger(logPath = DEFAULT_LOG_PATH) {
     // A disk/write failure here shouldn't take down the WS relay itself —
     // session-termination logging is diagnostic, not core functionality.
     stream.on('error', (err) => {
-        console.error('session-logger: write stream error:', err);
+        log.error(`Session log write failed (${logPath})`, { err });
     });
 
     // One JSON object per line ("JSON Lines"), so the file stays parseable/
@@ -49,7 +50,7 @@ function createSessionLogger(logPath = DEFAULT_LOG_PATH) {
         });
     }
 
-    return { logSessionTerminated, close };
+    return { logSessionTerminated, close, logPath };
 }
 
 module.exports = { ...createSessionLogger(), createSessionLogger };

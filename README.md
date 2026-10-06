@@ -21,6 +21,8 @@ Copy `.env.example` to `.env`.
 |---|---|
 | `DEBUG_TOKEN` | Enables `GET /debug/sessions` (send it as the `X-Debug-Token` header). Unset = endpoint disabled. |
 | `PORT` | Defaults to `3000`. |
+| `LOG_LEVEL` | `debug`, `info` (default), `warn`, `error` or `silent`. `debug` adds raw message payloads and state changes. |
+| `LOG_FORMAT` | `pretty` (default, human-readable) or `json` (one JSON object per line). |
 | `MAX_CONNECTIONS` | Max simultaneously open WebSocket connections. Over the limit, new connections get HTTP `503`. Default `1000`. |
 | `MAX_SESSIONS` | Max simultaneous sessions. Creating another one is answered with `error`/`serverFull`. Default `1000`. |
 | `MAX_CLIENTS_PER_SESSION` | Max members per session. Joining a full session is answered with `error`/`sessionFull`. Default `100`. |

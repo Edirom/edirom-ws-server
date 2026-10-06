@@ -1,3 +1,5 @@
+const log = require('./logger');
+
 // ---------------------------------------------------------------------------
 // Client state
 //
@@ -38,9 +40,9 @@ function sanitizeStatePatch(patch) {
     for (const [key, value] of Object.entries(patch)) {
         const def = STATE_SCHEMA[key];
         if (!def) {
-            console.warn(`Ignoring unknown state key "${key}".`);
+            log.warn(`Ignored unknown state key ${JSON.stringify(key.slice(0, 50))}`, {}, { throttle: 'state-unknown-key' });
         } else if (!def.validate(value)) {
-            console.warn(`Ignoring invalid value for state key "${key}".`);
+            log.warn(`Ignored invalid value for state key ${JSON.stringify(key)}`, {}, { throttle: 'state-invalid-value' });
         } else {
             clean[key] = value;
         }
@@ -91,7 +93,7 @@ function applyStateUpdate(sender, session, payload) {
 
     changedKeys.forEach(key => { sender.state[key] = patch[key]; });
     sender.stateUpdatedAt = Date.now();
-    console.log(`State of client ${sender.id} updated:`, Object.fromEntries(changedKeys.map(key => [key, patch[key]])));
+    log.debug(`State of client ${sender.id} updated: ${JSON.stringify(Object.fromEntries(changedKeys.map(key => [key, patch[key]])))}`);
 
     if (payload?.cause === 'syncResult') return [];
 

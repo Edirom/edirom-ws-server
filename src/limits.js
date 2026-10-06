@@ -1,3 +1,5 @@
+const log = require('./logger');
+
 // Resource caps that keep one misbehaving (or malicious) client from taking
 // the relay down. Every value can be overridden through an env var; tests
 // pass their own (tiny) limits to createServer() instead.
@@ -34,7 +36,7 @@ function loadLimits(env = process.env) {
         if (Number.isInteger(parsed) && parsed > 0) {
             limits[key] = parsed;
         } else {
-            console.warn(`${envName}="${raw}" is not a positive integer — using default ${DEFAULT_LIMITS[key]}.`);
+            log.warn(`Ignored ${envName}=${JSON.stringify(raw)}: not a positive integer, using default ${DEFAULT_LIMITS[key]}`);
         }
     }
     return limits;
