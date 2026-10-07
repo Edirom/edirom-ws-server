@@ -2,20 +2,23 @@
 
 Lightweight WebSocket relay that lets multiple Edirom clients join a shared "session" and communicate with each other.
 
-## Running
-
 ```
+git clone --recurse-submodules https://github.com/Edirom/edirom-ws-server.git
+cd edirom-ws-server
 docker build -t edirom-ws-server .
-docker run \
-  --env-file .env \
-  -v /my/directory/:/usr/src/app/data \
-  -p 3000:3000 \
+docker run -d \
+  -e PORT=8080 \
+  -e DEBUG_TOKEN=change-me \
+  -v /my/logs:/usr/src/app/data \
+  -p 8080:8080 \
   edirom-ws-server
 ```
 
+This serves on port `8080` and writes the session log to `/my/logs/sessions.log`. All settings are environment variables (see [Configuration](#configuration)); use `--env-file .env` instead of `-e` to load them from a file. The protocol module is a git submodule, which is why the clone needs `--recurse-submodules` (in an existing clone, run `git submodule update --init`).
+
 ## Configuration
 
-Copy `.env.example` to `.env`.
+Set these as environment variables, or copy `.env.example` to `.env`.
 
 | Variable | Purpose |
 |---|---|
@@ -28,7 +31,7 @@ Copy `.env.example` to `.env`.
 | `MAX_CLIENTS_PER_SESSION` | Max members per session. Joining a full session is answered with `error`/`sessionFull`. Default `100`. |
 | `MESSAGE_RATE_PER_SEC` / `MESSAGE_BURST` | Per-connection token bucket: sustained messages per second / burst size. A client exceeding it is disconnected with close code `1008`. Defaults `40` / `80`. |
 
-Client names are stripped of control characters and capped at 64 characters (device types: 32). Every connection must send a `protocolVersion` matching the server's (see the wire protocol below); otherwise it is answered with `error`/`protocolMismatch` and closed.
+Client names are stripped of control characters and capped at 64 characters (device types: 32); messages larger than 64 KB are rejected. Unresponsive connections are dropped by a 30 s heartbeat. Every connection must send a `protocolVersion` matching the server's (see the wire protocol below); otherwise it is answered with `error`/`protocolMismatch` and closed.
 
 ## Observability
 
@@ -38,10 +41,11 @@ Client names are stripped of control characters and capped at 64 characters (dev
   curl -H "X-Debug-Token: <DEBUG_TOKEN>" http://localhost:3000/debug/sessions
   ```
 
-- `data/sessions.log` gets one JSON line per session that ends — members, device types, durations, why it ended. Rotates at 20MB; old files are kept. Mount `data/` (see Docker below) to persist it.
+- `GET /` — plain health check (`WebSocket server is running`).
 
+- `data/sessions.log` gets one JSON line per session that ends — members, device types, durations, why it ended. Rotates at 20MB; old files are kept. Mount `data/` (see the example above) to persist it.
 
 ## Wire protocol
 
-The wire protocol is defined in code, once, in [`ws-protocol.js`](https://github.com/Edirom/edirom-connected-workspace/blob/main/ws-protocol.js) inside the `edirom-connected-workspace` repo (vendored here as a git submodule at `vendor/edirom-connected-workspace`) — that file is the single source of truth for both this server and the canonical browser client, so there is no separate hand-written spec to keep in sync here anymore. For a human-readable overview (message tables, when each one is sent), see [that repo's README, "Wire protocol" section](https://github.com/Edirom/edirom-connected-workspace#wire-protocol) — it's documented there rather than here since `ws-protocol.js` lives there.
+The wire protocol is defined in code, once, in [`ws-protocol.js`](https://github.com/Edirom/edirom-connected-workspace/blob/main/ws-protocol.js) inside the `edirom-connected-workspace` repo (vendored here as a git submodule at `vendor/edirom-connected-workspace`) — that file is the single source of truth for both this server and the canonical browser client. For a human-readable overview (message tables, when each one is sent), see [that repo's README, "Wire protocol" section](https://github.com/Edirom/edirom-connected-workspace#wire-protocol) Which state keys exist (`edition`, `work`, `connection`) is defined by `STATE_SCHEMA` in [`src/state.js`](src/state.js).
 
