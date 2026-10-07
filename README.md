@@ -7,14 +7,14 @@ git clone --recurse-submodules https://github.com/Edirom/edirom-ws-server.git
 cd edirom-ws-server
 docker build -t edirom-ws-server .
 docker run -d \
-  -e PORT=8080 \
+  -e PORT=3000 \
   -e DEBUG_TOKEN=change-me \
   -v /my/logs:/usr/src/app/data \
-  -p 8080:8080 \
+  -p 3000:3000 \
   edirom-ws-server
 ```
 
-This serves on port `8080` and writes the session log to `/my/logs/sessions.log`. All settings are environment variables (see [Configuration](#configuration)); use `--env-file .env` instead of `-e` to load them from a file. The protocol module is a git submodule, which is why the clone needs `--recurse-submodules` (in an existing clone, run `git submodule update --init`).
+The server is now reachable at `ws://localhost:3000`
 
 ## Configuration
 
